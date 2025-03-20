@@ -30,7 +30,7 @@ def joinNetwork():
 
     service_type = "_secureshare._tcp.local."
     service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
-    port = 5000
+    port = 3000
 
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
