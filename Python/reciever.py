@@ -3,6 +3,8 @@ from time import sleep
 from typing import cast
 import socket
 
+target_port = 5000
+
 class Listener(ServiceListener):
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         print(f"Service {name} updated")
@@ -15,10 +17,11 @@ class Listener(ServiceListener):
         if info is None:
             print(f"Could not get details for {name}. The service may not be available")
             return
-        addresses = [f"{addr}:{cast(int, info.port)}" for addr in info.parsed_scoped_addresses()]
-        print(f"Service {name} added, service info:")
-        print(f"  Addresses: {', '.join(addresses)}")
-        print(f"  Server: {info.server}\n")
+        if info and info.port == target_port:
+            addresses = [f"{addr}:{cast(int, info.port)}" for addr in info.parsed_scoped_addresses()]
+            print(f"Service {name} added, service info:")
+            print(f"  Addresses: {', '.join(addresses)}")
+            print(f"  Server: {info.server}\n")
 
 def joinNetwork():
     zeroconf = Zeroconf()
@@ -26,7 +29,7 @@ def joinNetwork():
     services = list(ZeroconfServiceTypes.find(zc=zeroconf))
 
     service_type = "_secureshare._tcp.local."
-    service_name = "SecureShareP2P._secureshare._tcp.local."
+    service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
     port = 5000
 
     hostname = socket.gethostname()
