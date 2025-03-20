@@ -12,6 +12,9 @@ class Listener(ServiceListener):
 
     def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         info = zc.get_service_info(type_, name)
+        if info is None:
+            print(f"Could not get details for {name}. The service may not be available")
+            return
         addresses = [f"{addr}:{cast(int, info.port)}" for addr in info.parsed_scoped_addresses()]
         print(f"Service {name} added, service info:")
         print(f"  Addresses: {', '.join(addresses)}")
