@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const defaultConfig = { isFirstRun: true, passwordSet: false };
+const defaultConfig = { isFirstRun: true };
 
 function createConfigDirectory()
 {
