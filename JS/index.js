@@ -1,5 +1,6 @@
 const mdns = require('./mdns-discovery');
 const config = require('./config');
+const { handleClientConnection } = require('./connection'); // Import the function
 
 const PORT = config.port;
 const SERVICE_NAME = config.serviceName;
@@ -85,4 +86,9 @@ if (process.stdin.isTTY)
     process.stdin.on('data', handleCommand);
 
     console.log('Enter a command (list)');
+}
+else
+{
+    console.log('No TTY available');
+    return;
 }
