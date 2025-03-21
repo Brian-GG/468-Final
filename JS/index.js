@@ -1,6 +1,7 @@
 const mdns = require('./mdns-discovery');
 const config = require('./config');
-const { handleClientConnection } = require('./connection'); // Import the function
+const { readConfig, saveConfig } = require('./state');
+const readline = require('readline');
 
 const PORT = config.port;
 const SERVICE_NAME = config.serviceName;
@@ -80,12 +81,49 @@ function handleCommand(cmd)
     }
 }
 
+function checkFirstUse()
+{
+    const config = readConfig();
+
+    if (config.isFirstRun)
+    {
+        // generate public/private keypair here
+        console.log('First run detected');
+        
+        config.isFirstRun = false;
+        saveConfig(config);
+    }
+
+    if (!config.password || config.password.length === 0)
+    {
+        console.log('Please set a password for this agent');
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            terminal: true
+        });
+        
+        rl.question('Enter password: ', (password) => {
+            config.password = password;
+            saveConfig(config);
+            console.log('Password set successfully');
+            rl.close();
+            console.log('Welcome back! Enter a command (list)');
+            process.stdin.setEncoding('utf-8');
+            process.stdin.on('data', handleCommand);
+        });
+    }
+    else
+    {
+        console.log('Welcome back! Enter a command (list)');
+        process.stdin.setEncoding('utf-8');
+        process.stdin.on('data', handleCommand);
+    }
+}
+
 if (process.stdin.isTTY)
 {
-    process.stdin.setEncoding('utf-8');
-    process.stdin.on('data', handleCommand);
-
-    console.log('Enter a command (list)');
+    checkFirstUse();
 }
 else
 {
