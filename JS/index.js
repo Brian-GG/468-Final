@@ -1,7 +1,7 @@
 const mdns = require('./mdns-discovery');
 const config = require('./config');
 const { readConfig, saveConfig } = require('./state');
-const readline = require('readline');
+const { input, password } = require('@inquirer/prompts');
 
 const PORT = config.port;
 const SERVICE_NAME = config.serviceName;
@@ -9,15 +9,26 @@ const SERVICE_TYPE = config.serviceType;
 
 const peers = new Map();
 
-console.log(`Starting agent with service name: ${SERVICE_NAME} on port ${PORT}`);
-const serviceName = mdns.advertiseService(SERVICE_NAME, PORT);
+function initAgent()
+{
+    console.log(`Starting agent with service name: ${SERVICE_NAME} on port ${PORT}`);
+    const serviceName = mdns.advertiseService(SERVICE_NAME, PORT);
+    
+    console.log(`Finding peers for service type: ${SERVICE_TYPE}`);
+    const browser = mdns.findPeers(handlePeerDiscovered, handlePeerRemoved);
 
-console.log(`Finding peers for service type: ${SERVICE_TYPE}`);
-const browser = mdns.findPeers(handlePeerDiscovered, handlePeerRemoved);
+    process.on('SIGINT', () => {
+        console.log('Shutting down agent');
+        mdns.cleanupBonjour();
+        process.exit(0);
+    });
+
+    return [serviceName, browser];
+}
 
 function handlePeerDiscovered(service)
 {
-    if (service.name === serviceName)
+    if (service.name === SERVICE_NAME)
         return;
 
     console.log(`Peer discovered: ${service.name} on ${service.host}:${service.port}`);
@@ -60,15 +71,11 @@ function listAvailablePeers()
     });
 }
 
-process.on('SIGINT', () => {
-    console.log('Shutting down agent');
-    mdns.cleanupBonjour();
-    process.exit(0);
-});
-
-function handleCommand(cmd)
+async function handleCommands()
 {
-    const [command, ...args] = cmd.trim().split(' ');
+    console.log(`P2P FILE SHARING APP\n\nAvailable commands: list`);
+    const menuOpt = await input({message: `Welcome back! Please enter a command: `});
+    const command = menuOpt;
 
     switch(command.toLowerCase())
     {
@@ -81,7 +88,7 @@ function handleCommand(cmd)
     }
 }
 
-function checkFirstUse()
+async function validatePrerequisites()
 {
     const config = readConfig();
 
@@ -96,34 +103,19 @@ function checkFirstUse()
 
     if (!config.password || config.password.length === 0)
     {
-        console.log('Please set a password for this agent');
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout,
-            terminal: true
-        });
-        
-        rl.question('Enter password: ', (password) => {
-            config.password = password;
-            saveConfig(config);
-            console.log('Password set successfully');
-            rl.close();
-            console.log('Welcome back! Enter a command (list)');
-            process.stdin.setEncoding('utf-8');
-            process.stdin.on('data', handleCommand);
-        });
+        console.log('You must set a passphrase to encrypt your downloaded files. Please do so now!');
+        const userPassphrase = await password({ message: 'Enter password: ' });
+        config.password = userPassphrase;
+        saveConfig(config);
     }
-    else
-    {
-        console.log('Welcome back! Enter a command (list)');
-        process.stdin.setEncoding('utf-8');
-        process.stdin.on('data', handleCommand);
-    }
+
+    let [serviceName, browser] = initAgent();
+    await handleCommands();
 }
 
 if (process.stdin.isTTY)
 {
-    checkFirstUse();
+    validatePrerequisites();
 }
 else
 {

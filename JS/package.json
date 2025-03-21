@@ -10,6 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@inquirer/prompts": "^7.4.0",
     "bonjour": "^3.5.0"
   }
 }
