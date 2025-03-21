@@ -2,6 +2,7 @@ const mdns = require('./mdns-discovery');
 const config = require('./config');
 const { readConfig, saveConfig } = require('./state');
 const { input, password } = require('@inquirer/prompts');
+const { generateKeyPair, generateSalt, encryptPrivateKey } = require('./utils');
 
 const PORT = config.port;
 const SERVICE_NAME = config.serviceName;
@@ -18,7 +19,7 @@ function initAgent()
     const browser = mdns.findPeers(handlePeerDiscovered, handlePeerRemoved);
 
     process.on('SIGINT', () => {
-        console.log('Shutting down agent');
+        console.log('\nShutting down agent');
         mdns.cleanupBonjour();
         process.exit(0);
     });
@@ -74,17 +75,25 @@ function listAvailablePeers()
 async function handleCommands()
 {
     console.log(`P2P FILE SHARING APP\n\nAvailable commands: list`);
-    const menuOpt = await input({message: `Welcome back! Please enter a command: `});
-    const command = menuOpt;
-
-    switch(command.toLowerCase())
+    
+    while (true)
     {
-        case 'list':
-            listAvailablePeers();
-            break;
-        default:
-            console.log('Unknown command');
-            break;
+        const menuOpt = await input({message: `Please enter a command: `});
+        const command = menuOpt;
+        
+        switch(command.toLowerCase())
+        {
+            case 'list':
+                listAvailablePeers();
+                break;
+            case 'exit':
+                console.log('Goodbye!');
+                mdns.cleanupBonjour();
+                process.exit(0);
+            default:
+                console.log('Unknown command');
+                break;
+        }
     }
 }
 
@@ -92,20 +101,32 @@ async function validatePrerequisites()
 {
     const config = readConfig();
 
-    if (config.isFirstRun)
+    if (config.isFirstRun || !config.keypair)
     {
-        // generate public/private keypair here
         console.log('First run detected');
+        const { publicKey, privateKey } = generateKeyPair();
         
-        config.isFirstRun = false;
-        saveConfig(config);
-    }
-
-    if (!config.password || config.password.length === 0)
-    {
-        console.log('You must set a passphrase to encrypt your downloaded files. Please do so now!');
+        console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!');
         const userPassphrase = await password({ message: 'Enter password: ' });
-        config.password = userPassphrase;
+        const userPassphraseConfirm = await password({ message: 'Confirm password: ' });
+
+        if (userPassphrase !== userPassphraseConfirm)
+        {
+            console.log('Passwords do not match. Exiting...');
+            return;
+        }
+
+        const salt = generateSalt();
+        const encryptedResults = await encryptPrivateKey(privateKey, userPassphraseConfirm, salt);
+
+        config.keypair = {
+            publicKey: publicKey,
+            privateKey: encryptedResults.encryptedPrivateKey,
+            iv: encryptedResults.iv,
+            authTag: encryptedResults.authTag,
+            salt: salt
+        }
+        config.isFirstRun = false;
         saveConfig(config);
     }
 
