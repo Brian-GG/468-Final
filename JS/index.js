@@ -90,7 +90,7 @@ async function connectToPeer(peerName) {
   
     async function confirmAndConnect() {
         if (!peer.connectedBefore) {
-            const confirmation = await confirm({ message: `You have not connected to this peer before. Do you want to continue? (yes/no):` });
+            const confirmation = await confirm({ message: `You have not connected to this peer before. Do you want to continue?` });
   
             if (!confirmation) {
                 console.log('Connection cancelled.');
