@@ -2,13 +2,14 @@ const tls = require('tls');
 const fs = require('fs');
 const path = require('path');
 const { getCertDirectory } = require('./utils');
+const config = require('./config');
 
 function handleServerCreation()
 {
   const options = {
     key: fs.readFileSync(path.join(getCertDirectory(), 'server.key')),
     cert: fs.readFileSync(path.join(getCertDirectory(), 'server.crt')),
-    ca: fs.readFileSync(path.join(getCertDirectory(), 'ca.crt')),
+    ca: [fs.readFileSync(path.join(getCertDirectory(), 'ca.crt'))],
     requestCert: true,
     rejectUnauthorized: true
   };
@@ -41,8 +42,8 @@ function handleServerCreation()
     });
   });
 
-  server.listen(8443, () => {
-    console.log('Server listening on port 8443');
+  server.listen(config.port, () => {
+    console.log(`Server listening on port ${config.port}`);
   });
   
   server.on('tlsClientError', (err) => {
