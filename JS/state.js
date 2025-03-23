@@ -12,6 +12,7 @@ function createConfigDirectory()
     if (!fs.existsSync(configDir))
     {
         fs.mkdirSync(configDir);
+        fs.mkdirSync(path.join(configDir, 'certs'));
         fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(defaultConfig, null, 2));
     }
 
