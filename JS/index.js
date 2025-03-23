@@ -2,7 +2,8 @@ const mdns = require('./mdns-discovery');
 const config = require('./config');
 const { readConfig, saveConfig } = require('./state');
 const { input, password } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey } = require('./utils');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address } = require('./utils');
+const { handleServerCreation } = require('./connection');
 
 const PORT = config.port;
 const SERVICE_NAME = config.serviceName;
@@ -126,11 +127,20 @@ async function validatePrerequisites()
             authTag: encryptedResults.authTag,
             salt: salt
         }
+
+        const localIP = getLocalIPv4Address();
+
+        createRootCACert();
+        createServerCert(localIP);
+        createClientCert();
+
         config.isFirstRun = false;
         saveConfig(config);
     }
 
+    
     let [serviceName, browser] = initAgent();
+    handleServerCreation(); // Start the server
     await handleCommands();
 }
 

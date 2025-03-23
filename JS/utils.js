@@ -1,5 +1,9 @@
 const crypto = require('crypto');
 const argon2 = require('argon2');
+const os = require('os');
+const fs = require('fs');
+
+const { runOSCommand } = require('./ca');
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
@@ -56,5 +60,57 @@ module.exports = {
 
     generateSalt: () => {
         return crypto.randomBytes(32).toString('hex');
+    },
+
+    createRootCACert: () => {
+        runOSCommand(`openssl genpkey -algorithm Ed25519 -out ca.key`);
+        runOSCommand(`openssl req -x509 -new -key ca.key -out ca.crt -days 3650 -subj "/CN=Root CA" -extensions v3_ca`);
+    },
+
+    createServerCert: (ip) => {
+        runOSCommand(`openssl genpkey -algorithm Ed25519 -out server.key`);
+        runOSCommand(`openssl req -new -key server.key -out server.csr -subj "/CN=${ip}"`);
+        runOSCommand(`bash -c "openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 -extfile <(printf 'subjectAltName=DNS:${ip},IP:127.0.0.1')"`);
+    },
+
+    createClientCert: () => {
+        runOSCommand(`openssl genpkey -algorithm Ed25519 -out client.key`);
+        runOSCommand(`openssl req -new -key client.key -out client.csr -subj "/CN=P2PAgentClient"`);
+        runOSCommand(`openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt -days 365`)
+    },
+
+    getLocalIPv4Address: () => {
+        const interfaces = os.networkInterfaces();
+        for (const name of Object.keys(interfaces)) {
+            for (const iface of interfaces[name]) {
+                if (iface.family === 'IPv4' && !iface.internal) {
+                    return iface.address;
+                }
+            }
+        }
+        return '127.0.0.1'; // Fallback to localhost if no external IPv4 address is found
+    },
+
+    getConfigDirectory: () => {
+        const homedir = os.homedir();
+        const configDir = `${homedir}/.p2p-agent`;
+
+        if (!fs.existsSync(configDir)) {
+            fs.mkdirSync(configDir);
+            fs.mkdirSync(`${configDir}/certs`);
+        }
+
+        return configDir;
+    },
+
+    getCertDirectory: () => {
+        const configDir = module.exports.getConfigDirectory();
+        const certDir = `${configDir}/certs`;
+
+        if (!fs.existsSync(certDir)) {
+            fs.mkdirSync(certDir);
+        }
+
+        return certDir;
     }
 }
