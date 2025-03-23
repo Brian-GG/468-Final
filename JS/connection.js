@@ -1,50 +1,83 @@
 const tls = require('tls');
 const fs = require('fs');
 const path = require('path');
-
-const options = {
-  key: fs.readFileSync(path.join(__dirname, 'client-key.pem')),
-  cert: fs.readFileSync(path.join(__dirname, 'client-cert.pem')),
-  ca: fs.readFileSync(path.join(__dirname, 'ca-cert.pem')),
-  requestCert: true,
-  rejectUnauthorized: true
-};
+const { getCertDirectory } = require('./utils');
 
 function handleServerCreation()
 {
-  
+  const options = {
+    key: fs.readFileSync(path.join(getCertDirectory(), 'server.key')),
+    cert: fs.readFileSync(path.join(getCertDirectory(), 'server.crt')),
+    ca: fs.readFileSync(path.join(getCertDirectory(), 'ca.crt')),
+    requestCert: true,
+    rejectUnauthorized: true
+  };
+
   const server = tls.createServer(options, (socket) => {
     const clientCert = socket.getPeerCertificate();
   
-    if (clientCert && clientCert.subject)
+    if (socket.authorized)
     {
-      console.log(`Client connected: ${clientCert.subject.CN}`);
+      console.log('Client authorized');
     }
     else
     {
-      console.log('Client did not provide a certificate.');
-      socket.end('Unauthorized: No certificate provided');
+      console.log('Client not authorized');
+      socket.end('Unauthorized: Invalid certificate');
+      socket.destroy();
+      return;
     }
+    
+    socket.on('data', (data) => {
+      console.log(`Received: ${data.toString()}`);
+    });
+
+    socket.on('end', () => {
+      console.log('Client disconnected');
+    });
+
+    socket.on('error', (err) => {
+      console.error('Socket error:', err);
+    });
+  });
+
+  server.listen(8443, () => {
+    console.log('Server listening on port 8443');
+  });
   
-    socket.end('Welcome!');
+  server.on('tlsClientError', (err) => {
+    console.error('Client authentication error:', err);
+    if (socket)
+      socket.destroy();
   });
 }
 
 function handleClientConnection(host, port)
 {
-  const connectionOpts = { ...options, host, port };
+  const options = {
+    host,
+    port,
+    key: fs.readFileSync(path.join(getCertDirectory(), 'client.key')),
+    cert: fs.readFileSync(path.join(getCertDirectory(), 'client.crt')),
+    ca: [fs.readFileSync(path.join(getCertDirectory(), 'ca.crt'))],
+    rejectUnauthorized: true
+  };
 
-  const socket = tls.connect(connectionOpts, () => {
+  const socket = tls.connect(options, () => {
     if (!socket.authorized)
     {
       console.log('Connection not authorized');
       socket.end(); socket.destroy();
       return;
     }
+
+    console.log('Client connected to server');
+    socket.write('Hello from client');
   });
 
   socket.on('data', (data) => {
     console.log(`Received: ${data.toString()}`);
+    socket.end(); socket.destroy();
   });
 
   socket.on('end', () => {
@@ -54,4 +87,9 @@ function handleClientConnection(host, port)
   socket.on('error', (err) => {
     console.error(err);
   });
+}
+
+module.exports = {
+  handleClientConnection,
+  handleServerCreation
 }
