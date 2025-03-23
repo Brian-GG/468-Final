@@ -114,7 +114,7 @@ async function validatePrerequisites()
         if (userPassphrase !== userPassphraseConfirm)
         {
             console.log('Passwords do not match. Exiting...');
-            return;
+            process.exit(1);
         }
 
         const salt = generateSalt();
