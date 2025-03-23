@@ -11,7 +11,7 @@ function handleServerCreation()
     cert: fs.readFileSync(path.join(getCertDirectory(), 'server.crt')),
     ca: [fs.readFileSync(path.join(getCertDirectory(), 'ca.crt'))],
     requestCert: true,
-    rejectUnauthorized: true
+    rejectUnauthorized: false
   };
 
   const server = tls.createServer(options, (socket) => {
@@ -60,7 +60,7 @@ async function handleClientConnection(host, port) {
     key: fs.readFileSync(path.join(getCertDirectory(), 'client.key')),
     cert: fs.readFileSync(path.join(getCertDirectory(), 'client.crt')),
     ca: [fs.readFileSync(path.join(getCertDirectory(), 'ca.crt'))],
-    rejectUnauthorized: true
+    rejectUnauthorized: false
   };
 
   return new Promise((resolve, reject) => {
