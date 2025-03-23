@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const argon2 = require('argon2');
 const os = require('os');
 const fs = require('fs');
+const dns = require('dns');
 
 const { runOSCommand } = require('./ca');
 
@@ -112,5 +113,18 @@ module.exports = {
         }
 
         return certDir;
+    },
+
+    resolveHostnameToIP: (hostname) => {
+        return new Promise((resolve, reject) => {
+            dns.lookup(hostname, (err, address) => {
+                if (err)
+                    reject(err);
+                else
+                {
+                    resolve(address);
+                }
+            });
+        });
     }
 }

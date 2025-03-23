@@ -2,7 +2,7 @@ const mdns = require('./mdns-discovery');
 const config = require('./config');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address } = require('./utils');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP } = require('./utils');
 const { handleServerCreation, handleClientConnection } = require('./connection');
 
 const PORT = config.port;
@@ -28,26 +28,34 @@ function initAgent()
     return [serviceName, browser];
 }
 
-function handlePeerDiscovered(service)
+async function handlePeerDiscovered(service)
 {
     if (service.name === SERVICE_NAME)
         return;
 
-    console.log(`Peer discovered: ${service.name} on ${service.host}:${service.port}`);
-
-    if (!peers.has(service.name))
+    try
     {
-        peers.set(service.name, {
-            name: service.name,
-            host: service.host,
-            port: service.port,
-            service: service,
-            discoveredAt: Date.now(),
-            lastSeen: Date.now()
-        });
-    }
+        const ip = await resolveHostnameToIP(service.host);
+        console.log(`Peer discovered: ${service.name} on ${ip}:${service.port}`);
 
-    console.log(`Total peers: ${peers.size}`);
+        if (!peers.has(service.name))
+        {
+            peers.set(service.name, {
+                name: service.name,
+                host: ip,
+                port: service.port,
+                service: service,
+                discoveredAt: Date.now(),
+                lastSeen: Date.now()
+            });
+        }
+
+        console.log(`Total peers: ${peers.size}`);
+    } 
+    catch (err)
+    {
+        console.error(`Failed to resolve hostname ${service.host}:`, err);
+    }
 }
 
 function handlePeerRemoved(service)
