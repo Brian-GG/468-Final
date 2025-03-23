@@ -52,8 +52,7 @@ function handleServerCreation()
   });
 }
 
-function handleClientConnection(host, port)
-{
+async function handleClientConnection(host, port) {
   const options = {
     host,
     port,
@@ -63,29 +62,42 @@ function handleClientConnection(host, port)
     rejectUnauthorized: true
   };
 
-  const socket = tls.connect(options, () => {
-    if (!socket.authorized)
-    {
-      console.log('Connection not authorized');
-      socket.end(); socket.destroy();
-      return;
-    }
+  return new Promise((resolve, reject) => {
+    const socket = tls.connect(options, () => {
+      if (!socket.authorized) {
+        console.log('Connection not authorized', socket.authorizationError);
+        socket.destroy();
+        reject (new Error(`TLS Connection not authorized: ${socket.authorizationError}`));
+        return;
+      }
 
-    console.log('Client connected to server');
-    socket.write('Hello from client');
-  });
+      console.log('Client connected to server (mTLS auth success)');  //Now mTLS authenticated
+
+      socket.write('Hello from client\n', (err) => {
+          if(err) {
+            console.error("Error writing to socket: ", err);
+            socket.destroy();
+            reject(err);
+            return;
+          }
+      });
+      resolve(socket); // Resolve the promise on successful connection, no error at write time.
+
+    });
 
   socket.on('data', (data) => {
-    console.log(`Received: ${data.toString()}`);
-    socket.end(); socket.destroy();
-  });
+      console.log(`Received: ${data.toString()}`);
+      socket.end();
+    });
+    socket.on('end', () => {
+      console.log('Connection closed');
+    });
 
-  socket.on('end', () => {
-    console.log('Connection closed');
-  });
+    socket.on('error', (err) => {
+      console.error('Socket error:', err);
+        reject(err); // Reject the promise if the error occurred during the connection
+    });
 
-  socket.on('error', (err) => {
-    console.error(err);
   });
 }
 
