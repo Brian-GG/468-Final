@@ -69,9 +69,10 @@ module.exports = {
     },
 
     createServerCert: (ip) => {
+        const hostname = os.hostname();
         runOSCommand(`openssl genpkey -algorithm Ed25519 -out server.key`);
         runOSCommand(`openssl req -new -key server.key -out server.csr -subj "/CN=${ip}"`);
-        runOSCommand(`bash -c "openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 -extfile <(printf 'subjectAltName=DNS:${ip},IP:127.0.0.1')"`);
+        runOSCommand(`bash -c "openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 -extfile <(printf 'subjectAltName=IP:${ip},IP:127.0.0.1,DNS:${hostname}')"`);
     },
 
     createClientCert: () => {
