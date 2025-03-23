@@ -1,9 +1,9 @@
 const mdns = require('./mdns-discovery');
 const config = require('./config');
 const { readConfig, saveConfig } = require('./state');
-const { input, password } = require('@inquirer/prompts');
+const { input, password, confirm } = require('@inquirer/prompts');
 const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address } = require('./utils');
-const { handleServerCreation } = require('./connection');
+const { handleServerCreation, handleClientConnection } = require('./connection');
 
 const PORT = config.port;
 const SERVICE_NAME = config.serviceName;
@@ -73,6 +73,32 @@ function listAvailablePeers()
     });
 }
 
+async function connectToPeer(peerName) {
+    let peer = peers.get(peerName);
+    if (!peer) {
+      console.log(`Peer ${peerName} not found`);
+      return false; // Indicate failure: peer not found
+    }
+  
+    async function confirmAndConnect() {
+        if (!peer.connectedBefore) {
+            const confirmation = await confirm({ message: `You have not connected to this peer before. Do you want to continue? (yes/no):` });
+  
+            if (!confirmation) {
+                console.log('Connection cancelled.');
+                return false;  // Indicate failure: user cancelled
+            }
+            peer.connectedBefore = true;
+        }
+  
+        return true; // Indicate success
+    }
+  
+    // This is how you should use it:
+    const continueConnecting = await confirmAndConnect();
+    return { peer, continueConnecting };// return a peer connection value!
+}
+
 async function handleCommands()
 {
     console.log(`P2P FILE SHARING APP\n\nAvailable commands: list`);
@@ -86,6 +112,37 @@ async function handleCommands()
         {
             case 'list':
                 listAvailablePeers();
+                break;
+            case 'connect':
+                const peerName = await input({message: `Enter the peer name to connect to: `});
+                const connectionDetails = await connectToPeer(peerName);
+
+                if (connectionDetails && connectionDetails.continueConnecting)
+                {
+                    let peer = connectionDetails.peer;
+                    console.log(`Connecting to peer ${peer.name} at ${peer.host}:${peer.port}`);
+
+                    try
+                    {
+                        const peerSocket = await handleClientConnection(peer.host, peer.port);
+                        peerSocket.write(`Hello from ${SERVICE_NAME}\n`, (err) => {
+                            if (err)
+                            {
+                                console.error("Error writing to socket: ", err);
+                                peerSocket.destroy();
+                                return;
+                            }
+                        });
+                    } 
+                    catch (error)
+                    {
+                        console.error(`Error connecting to peer: ${error.message}`);
+                    }
+                }
+                else
+                {
+                    console.log(`Peer ${peerName} not found or connection cancelled.`);
+                }
                 break;
             case 'exit':
                 console.log('Goodbye!');
