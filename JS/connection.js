@@ -48,8 +48,6 @@ function handleServerCreation()
   
   server.on('tlsClientError', (err) => {
     console.error('Client authentication error:', err);
-    if (socket)
-      socket.destroy();
   });
 }
 
