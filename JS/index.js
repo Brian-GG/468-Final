@@ -5,6 +5,7 @@ const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
 const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP } = require('./utils');
 const { handleServerCreation, handleClientConnection } = require('./connection');
+const { scanFileVault } = require('./storage');
 
 const PORT = config.port;
 const SERVICE_NAME = config.serviceName;
@@ -86,7 +87,7 @@ async function connectToPeer(peerName) {
     let peer = peers.get(peerName);
     if (!peer) {
       console.log(`Peer ${peerName} not found`);
-      return false; // Indicate failure: peer not found
+      return false;
     }
   
     async function confirmAndConnect() {
@@ -95,17 +96,16 @@ async function connectToPeer(peerName) {
   
             if (!confirmation) {
                 console.log('Connection cancelled.');
-                return false;  // Indicate failure: user cancelled
+                return false;
             }
             peer.connectedBefore = true;
         }
   
-        return true; // Indicate success
+        return true;
     }
   
-    // This is how you should use it:
     const continueConnecting = await confirmAndConnect();
-    return { peer, continueConnecting };// return a peer connection value!
+    return { peer, continueConnecting };
 }
 
 async function handleCommands()
@@ -197,14 +197,13 @@ async function validatePrerequisites()
         const localIP = getLocalIPv4Address();
 
         createRootCACert();
-        createServerCert(localIP);
-        createClientCert();
+        createServerCert(localIP, { ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256' });
+        createClientCert({ ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256' });
 
         config.isFirstRun = false;
         saveConfig(config);
     }
 
-    
     let [serviceName, browser] = initAgent();
     handleServerCreation(); // Start the server
     await handleCommands();

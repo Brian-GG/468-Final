@@ -65,23 +65,95 @@ module.exports = {
     },
 
     createRootCACert: () => {
-        runOSCommand(`openssl genpkey -algorithm Ed25519 -out ca.key`);
-        runOSCommand(`openssl req -x509 -new -key ca.key -out ca.crt -days 3650 -subj "/CN=Root CA" -extensions v3_ca`);
+        const certDir = module.exports.getCertDirectory();
+        runOSCommand(`openssl genpkey -algorithm Ed25519 -out ${path.join(certDir, 'ca.key')}`);
+        runOSCommand(`openssl req -x509 -new -key ${path.join(certDir, 'ca.key')} -out ${path.join(certDir, 'ca.crt')} -days 3650 -subj "/CN=Root CA" -extensions v3_ca`);
     },
 
-    createServerCert: (ip) => {
+    createServerCert: (ip, options = {}) => {
+        const { ciphers } = options;
+
+        if (ciphers) {
+            console.log(`Using ciphers: ${ciphers}`);
+        }
+
         const certDir = module.exports.getCertDirectory();
         const hostname = os.hostname();
         runOSCommand(`openssl genpkey -algorithm Ed25519 -out ${path.join(certDir, 'server.key')}`);
         runOSCommand(`openssl req -new -key ${path.join(certDir, 'server.key')} -out ${path.join(certDir, 'server.csr')} -subj "/CN=${ip}"`);
-        runOSCommand(`bash -c "openssl x509 -req -in ${path.join(certDir, 'server.csr')} -CA ${path.join(certDir, 'ca.crt')} -CAkey ${path.join(certDir, 'ca.key')} -CAcreateserial -out ${path.join(certDir, 'server.crt')} -days 365 -extfile <(printf 'subjectAltName=IP:${ip},IP:127.0.0.1,DNS:${hostname}')"`);
+        
+        // Create a configuration file for server certificate with ciphers if specified
+        const serverCnfPath = path.join(certDir, 'server.cnf');
+        let serverExtConfig = `
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = ${ip}
+
+[v3_req]
+subjectAltName = IP:${ip},IP:127.0.0.1,DNS:${hostname}
+`;
+
+        // Add SSL options with ciphers if specified
+        if (ciphers)
+        {
+            serverExtConfig += `
+[ssl_sect]
+CipherString = ${ciphers}
+`;
+        }
+
+        fs.writeFileSync(serverCnfPath, serverExtConfig);
+        
+        // Use the configuration file for certificate generation
+        runOSCommand(`openssl x509 -req -in ${path.join(certDir, 'server.csr')} -CA ${path.join(certDir, 'ca.crt')} -CAkey ${path.join(certDir, 'ca.key')} -CAcreateserial -out ${path.join(certDir, 'server.crt')} -days 365 -extfile ${serverCnfPath} -extensions v3_req`);
     },
 
-    createClientCert: () => {
+    createClientCert: (options = {}) => {
+        const { ciphers } = options;
+
+        if (ciphers) {
+            console.log(`Using ciphers: ${ciphers}`);
+        }
+
         const certDir = module.exports.getCertDirectory();
+        
         runOSCommand(`openssl genpkey -algorithm Ed25519 -out ${path.join(certDir, 'client.key')}`);
-        runOSCommand(`openssl req -new -key ${path.join(certDir, 'client.key')} -out ${path.join(certDir, 'client.csr')} -subj "/CN=P2PAgentClient"`);
-        runOSCommand(`openssl x509 -req -in ${path.join(certDir, 'client.csr')} -CA ${path.join(certDir, 'ca.crt')} -CAkey ${path.join(certDir, 'ca.key')} -CAcreateserial -out ${path.join(certDir, 'client.crt')} -days 365`)
+        
+        // Create a configuration file for client certificate with ciphers if specified
+        const clientCnfPath = path.join(certDir, 'client.cnf');
+        let clientExtConfig = `
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = P2PAgentClient
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth
+`;
+
+        // Add SSL options with ciphers if specified
+        if (ciphers)
+        {
+            clientExtConfig += `
+[ssl_sect]
+CipherString = ${ciphers}
+`;
+        }
+
+        fs.writeFileSync(clientCnfPath, clientExtConfig);
+        
+        // Use the config file for CSR and certificate generation
+        runOSCommand(`openssl req -new -key ${path.join(certDir, 'client.key')} -out ${path.join(certDir, 'client.csr')} -config ${clientCnfPath}`);
+        runOSCommand(`openssl x509 -req -in ${path.join(certDir, 'client.csr')} -CA ${path.join(certDir, 'ca.crt')} -CAkey ${path.join(certDir, 'ca.key')} -CAcreateserial -out ${path.join(certDir, 'client.crt')} -days 365 -extfile ${clientCnfPath} -extensions v3_req`);
     },
 
     getLocalIPv4Address: () => {

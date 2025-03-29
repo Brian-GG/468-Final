@@ -2,36 +2,57 @@ const tls = require('tls');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const utils = require('./utils');
 
 function handleServerCreation() {
-    const server = tls.createServer({}, (socket) => {
-        socket.on('data', (data) => {
-            console.log(`Received: ${data.toString()}`);
-        });
+  const certDir = utils.getCertDirectory();
 
-        socket.on('end', () => {
-            console.log('Client disconnected');
-        });
+  const options = {
+    key: fs.readFileSync(path.join(certDir, 'server.key')),
+    cert: fs.readFileSync(path.join(certDir, 'server.crt')),
+    ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
+    requestCert: true,
+    rejectUnauthorized: false,
+    ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256',
+    honorCipherOrder: true
+  };
 
-        socket.on('error', (err) => {
-            console.error('Socket error:', err);
-        });
+  const server = tls.createServer(options, (socket) => {
+    socket.on('data', (data) => {
+        console.log(`Received: ${data.toString()}`);
     });
 
-    server.listen(config.port, () => {
-        console.log(`Server listening on port ${config.port}`);
+    socket.on('end', () => {
+        console.log('Client disconnected');
     });
 
-    server.on('tlsClientError', (err) => {
-        console.error('Client authentication error:', err);
+    socket.on('error', (err) => {
+        console.error('Socket error:', err);
     });
+  });
+
+  server.listen(config.port, () => {
+    console.log(`Server listening on port ${config.port}`);
+  });
+
+  server.on('tlsClientError', (err) => {
+    console.error('Client authentication error:', err);
+  });
 }
 
 async function handleClientConnection(host, port) {
+    const certDir = utils.getCertDirectory();
+
     return new Promise((resolve, reject) => {
         const options = {
-            host,
-            port,
+            host: host,
+            port: port,
+            key: fs.readFileSync(path.join(certDir, 'client.key')),
+            cert: fs.readFileSync(path.join(certDir, 'client.crt')),
+            ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
+            rejectUnauthorized: false,
+            ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256',
+            honorCipherOrder: true
         };
 
         const socket = tls.connect(options, () => {
