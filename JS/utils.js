@@ -3,6 +3,7 @@ const argon2 = require('argon2');
 const os = require('os');
 const fs = require('fs');
 const dns = require('dns');
+const path = require('path');
 
 const { runOSCommand } = require('./ca');
 
@@ -69,16 +70,18 @@ module.exports = {
     },
 
     createServerCert: (ip) => {
+        const certDir = module.exports.getCertDirectory();
         const hostname = os.hostname();
-        runOSCommand(`openssl genpkey -algorithm Ed25519 -out server.key`);
-        runOSCommand(`openssl req -new -key server.key -out server.csr -subj "/CN=${ip}"`);
-        runOSCommand(`bash -c "openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 -extfile <(printf 'subjectAltName=IP:${ip},IP:127.0.0.1,DNS:${hostname}')"`);
+        runOSCommand(`openssl genpkey -algorithm Ed25519 -out ${path.join(certDir, 'server.key')}`);
+        runOSCommand(`openssl req -new -key ${path.join(certDir, 'server.key')} -out ${path.join(certDir, 'server.csr')} -subj "/CN=${ip}"`);
+        runOSCommand(`bash -c "openssl x509 -req -in ${path.join(certDir, 'server.csr')} -CA ${path.join(certDir, 'ca.crt')} -CAkey ${path.join(certDir, 'ca.key')} -CAcreateserial -out ${path.join(certDir, 'server.crt')} -days 365 -extfile <(printf 'subjectAltName=IP:${ip},IP:127.0.0.1,DNS:${hostname}')"`);
     },
 
     createClientCert: () => {
-        runOSCommand(`openssl genpkey -algorithm Ed25519 -out client.key`);
-        runOSCommand(`openssl req -new -key client.key -out client.csr -subj "/CN=P2PAgentClient"`);
-        runOSCommand(`openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt -days 365`)
+        const certDir = module.exports.getCertDirectory();
+        runOSCommand(`openssl genpkey -algorithm Ed25519 -out ${path.join(certDir, 'client.key')}`);
+        runOSCommand(`openssl req -new -key ${path.join(certDir, 'client.key')} -out ${path.join(certDir, 'client.csr')} -subj "/CN=P2PAgentClient"`);
+        runOSCommand(`openssl x509 -req -in ${path.join(certDir, 'client.csr')} -CA ${path.join(certDir, 'ca.crt')} -CAkey ${path.join(certDir, 'ca.key')} -CAcreateserial -out ${path.join(certDir, 'client.crt')} -days 365`)
     },
 
     getLocalIPv4Address: () => {

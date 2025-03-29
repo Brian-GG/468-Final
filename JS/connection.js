@@ -6,10 +6,11 @@ const config = require('./config');
 
 function handleServerCreation()
 {
+  const certDir = getCertDirectory();
   const options = {
-    key: fs.readFileSync(path.join(getCertDirectory(), 'server.key')),
-    cert: fs.readFileSync(path.join(getCertDirectory(), 'server.crt')),
-    ca: [fs.readFileSync(path.join(getCertDirectory(), 'ca.crt'))],
+    key: fs.readFileSync(path.join(certDir, 'server.key')),
+    cert: fs.readFileSync(path.join(certDir, 'server.crt')),
+    ca: [fs.readFileSync(path.join(certDir, 'ca.crt'))],
     requestCert: true,
     rejectUnauthorized: false
   };
@@ -52,12 +53,13 @@ function handleServerCreation()
 }
 
 async function handleClientConnection(host, port) {
+  const certDir = getCertDirectory();
   const options = {
     host,
     port,
-    key: fs.readFileSync(path.join(getCertDirectory(), 'client.key')),
-    cert: fs.readFileSync(path.join(getCertDirectory(), 'client.crt')),
-    ca: [fs.readFileSync(path.join(getCertDirectory(), 'ca.crt'))],
+    key: fs.readFileSync(path.join(certDir, 'client.key')),
+    cert: fs.readFileSync(path.join(certDir, 'client.crt')),
+    ca: [fs.readFileSync(path.join(certDir, 'ca.crt'))],
     rejectUnauthorized: false
   };
 

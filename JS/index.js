@@ -1,3 +1,4 @@
+process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = 0;
 const mdns = require('./mdns-discovery');
 const config = require('./config');
 const { readConfig, saveConfig } = require('./state');
