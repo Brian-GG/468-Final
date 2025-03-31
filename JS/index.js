@@ -116,7 +116,7 @@ async function connectToPeer(peerName) {
     }
 
     const config = readConfig();
-    if (config.trustedPeers && config.trustedPeers.includes(peerName))
+    if (config.trustedPeers && Object.keys(config.trustedPeers).includes(peerName))
     {
         console.log(`Peer ${peerName} is trusted. Proceeding to connect.`);
         return { peer, continueConnecting: true };
