@@ -90,29 +90,60 @@ function listAvailablePeers()
     });
 }
 
+function listTrustedPeers()
+{
+    const config = readConfig();
+    if (!config.trustedPeers || Object.keys(config.trustedPeers).length === 0)
+    {
+        console.log('You have no trusted peers yet. Use the \`connect` command to add one.');
+        return;
+    }
+
+    console.log('Trusted peers:');
+    Object.keys(config.trustedPeers).forEach(peer => {
+        const lastConnectedDate = new Date(config.trustedPeers[peerName].lastConnected);
+        const isOnline = peers.has(peerName) ? '(Online)' : '(Offline)';
+        console.log(`${peer.name} ${isOnline} - last connected: ${lastConnectedDate}`);
+    });
+}
+
 async function connectToPeer(peerName) {
     let peer = peers.get(peerName);
-    if (!peer) {
+    if (!peer)
+    {
       console.log(`Peer ${peerName} not found`);
       return false;
     }
-  
-    async function confirmAndConnect() {
-        if (!peer.connectedBefore) {
-            const confirmation = await confirm({ message: `You have not connected to this peer before. Do you want to continue?` });
-  
-            if (!confirmation) {
-                console.log('Connection cancelled.');
-                return false;
-            }
-            peer.connectedBefore = true;
-        }
-  
-        return true;
+
+    const config = readConfig();
+    if (config.trustedPeers && config.trustedPeers.includes(peerName))
+    {
+        console.log(`Peer ${peerName} is trusted. Proceeding to connect.`);
+        return { peer, continueConnecting: true };
     }
-  
-    const continueConnecting = await confirmAndConnect();
-    return { peer, continueConnecting };
+
+    const confirmation = await confirm({ message: `Peer ${peerName} is not trusted. Do you want to trust this peer?` });
+    if (!confirmation)
+    {
+        console.log('Connection cancelled.');
+        return false;
+    }
+
+    if (!config.trustedPeers)
+        config.trustedPeers = {};
+
+    config.trustedPeers[peerName] = {
+        name: peer.name,
+        host: peer.host,
+        port: peer.port,
+        firstConnected: Date.now(),
+        lastConnected: Date.now()
+    };
+
+    saveConfig(config);
+    console.log(`Peer ${peerName} trusted.`);
+
+    return { peer, continueConnecting: confirmation };
 }
 
 async function handleCommands()
@@ -123,6 +154,7 @@ async function handleCommands()
     {
         const menuOpt = await input({message: `Please enter a command: `});
         const command = menuOpt;
+        const config = readConfig();
         
         switch(command.toLowerCase())
         {
@@ -149,6 +181,12 @@ async function handleCommands()
                                 return;
                             }
                         });
+
+                        if (config.trustedPeers[peerName])
+                        {
+                            config.trustedPeers[peerName].lastConnected = Date.now();
+                            saveConfig(config);
+                        }
                     } 
                     catch (error)
                     {
@@ -164,6 +202,9 @@ async function handleCommands()
                 console.log('Goodbye!');
                 mdns.cleanupBonjour();
                 process.exit(0);
+            case 'friends':
+                listTrustedPeers();
+                break;
             default:
                 console.log('Unknown command');
                 break;
