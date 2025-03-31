@@ -13,6 +13,7 @@ function createConfigDirectory()
     {
         fs.mkdirSync(configDir);
         fs.mkdirSync(path.join(configDir, 'certs'));
+        fs.mkdirSync(path.join(configDir, 'file_vault'));
         fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(defaultConfig, null, 2));
     }
 

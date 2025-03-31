@@ -47,7 +47,7 @@ module.exports = {
 
         const authTag = cipher.getAuthTag();
 
-        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex') };
+        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex'), derivedKey };
     },
 
     decryptPrivateKey: async (encryptedPrivateKey, password, salt, iv, authTag) => {
@@ -189,6 +189,17 @@ CipherString = ${ciphers}
         }
 
         return certDir;
+    },
+
+    getFileVaultDirectory: () => {
+        const configDir = module.exports.getConfigDirectory();
+        const fileVaultDir = `${configDir}/file_vault`;
+
+        if (!fs.existsSync(fileVaultDir)) {
+            fs.mkdirSync(fileVaultDir);
+        }
+
+        return fileVaultDir;
     },
 
     resolveHostnameToIP: (hostname) => {

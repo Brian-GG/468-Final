@@ -12,6 +12,7 @@ const SERVICE_NAME = config.serviceName;
 const SERVICE_TYPE = config.serviceType;
 
 const peers = new Map();
+let files = [];
 
 function initAgent()
 {
@@ -20,6 +21,13 @@ function initAgent()
     
     console.log(`Finding peers for service type: ${SERVICE_TYPE}`);
     const browser = mdns.findPeers(handlePeerDiscovered, handlePeerRemoved);
+
+    files = scanFileVault();
+
+    setInterval(() => {
+        files = scanFileVault();
+        console.log(`Files in vault: ${files.length}`);
+    }, 30 * 1000);
 
     process.on('SIGINT', () => {
         console.log('\nShutting down agent');
@@ -193,6 +201,9 @@ async function validatePrerequisites()
             authTag: encryptedResults.authTag,
             salt: salt
         }
+
+        config.salt = salt;
+        config.derivedKey = encryptedResults.derivedKey;
 
         const localIP = getLocalIPv4Address();
 
