@@ -1,8 +1,10 @@
 const tls = require('tls');
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
 const utils = require('./utils');
+const { readConfig } = require('./state');
+
+const config = readConfig();
 
 function handleServerCreation() {
   const certDir = utils.getCertDirectory();

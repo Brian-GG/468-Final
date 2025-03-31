@@ -1,15 +1,14 @@
 process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = 0;
 const mdns = require('./mdns-discovery');
-const config = require('./config');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
 const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP } = require('./utils');
 const { handleServerCreation, handleClientConnection } = require('./connection');
 const { scanFileVault } = require('./storage');
 
-const PORT = config.port;
-const SERVICE_NAME = config.serviceName;
-const SERVICE_TYPE = config.serviceType;
+var PORT;
+var SERVICE_NAME;
+var SERVICE_TYPE;
 
 const peers = new Map();
 let files = [];
@@ -175,6 +174,9 @@ async function handleCommands()
 async function validatePrerequisites()
 {
     const config = readConfig();
+    PORT = config.port;
+    SERVICE_NAME = config.serviceName;
+    SERVICE_TYPE = config.serviceType;
 
     if (config.isFirstRun || !config.keypair)
     {

@@ -1,5 +1,7 @@
+const { readConfig } = require('./state');
 const bonjour = require('bonjour')();
-const config = require('./config');
+
+const config = readConfig();
 
 let activeService = null;
 let activeBrowser = null;

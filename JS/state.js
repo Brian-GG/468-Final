@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const defaultConfig = { isFirstRun: true };
+const defaultConfig = { isFirstRun: true, port: 3000, serviceName: 'SecureP2PAgent-' + Math.floor(Math.random() * 1000), serviceType: 'p2p-agent' };
 
 function createConfigDirectory()
 {
