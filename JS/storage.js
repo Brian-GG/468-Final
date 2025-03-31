@@ -86,17 +86,71 @@ module.exports = {
     },
 
     decryptFile: async (fileName, derivedKey) => {
-        const fileVaultDir = getFileVaultDirectory();
-        const filePath = path.join(fileVaultDir, fileName);
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        const [metadata, encryptedFile] = fileContent.split('\n\n\n');
-        const { iv, authTag } = JSON.parse(metadata);
-
-        const decipher = crypto.createDecipheriv(ALGORITHM, derivedKey.substring(0, KEY_LENGTH), Buffer.from(iv, 'hex'));
-        decipher.setAuthTag(Buffer.from(authTag, 'hex'));
-        let decrypted = Buffer.concat([decipher.update(Buffer.from(encryptedFile, 'hex')), decipher.final()]);
-        
-        return decrypted;
+        try {
+            const fileVaultDir = getFileVaultDirectory();
+            const filePath = path.join(fileVaultDir, `${fileName}`);
+            
+            if (!fs.existsSync(filePath))
+            {
+                console.error(`File does not exist: ${filePath}`);
+                return null;
+            }
+            
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            if (!fileContent || fileContent.trim() === '')
+            {
+                console.error(`Empty file: ${filePath}`);
+                return null;
+            }
+            
+            const parts = fileContent.split('\n\n\n');
+            if (parts.length < 2)
+            {
+                console.error(`Invalid file format (missing separator): ${filePath}`);
+                return null;
+            }
+            
+            const [metadata, encryptedFile] = parts;
+            
+            try
+            {
+                const { iv, authTag } = JSON.parse(metadata);
+                
+                if (!iv || !authTag)
+                {
+                    console.error(`Missing required fields in metadata: ${filePath}`);
+                    return null;
+                }
+                
+                const decipher = crypto.createDecipheriv(ALGORITHM, derivedKey.substring(0, KEY_LENGTH), Buffer.from(iv, 'hex'));
+                decipher.setAuthTag(Buffer.from(authTag, 'hex'));
+                
+                try
+                {
+                    let decrypted = Buffer.concat([
+                        decipher.update(Buffer.from(encryptedFile, 'hex')), 
+                        decipher.final()
+                    ]);
+                    
+                    return decrypted;
+                }
+                catch (decryptError)
+                {
+                    console.error(`Decryption error (possibly wrong key): ${filePath}`, decryptError);
+                    return null;
+                }
+            }
+            catch (jsonError)
+            {
+                console.error(`Invalid metadata JSON: ${filePath}`, jsonError);
+                return null;
+            }
+        }
+        catch (error)
+        {
+            console.error(`Error in decryptFile for ${fileName}:`, error);
+            return null;
+        }
     },
 
     writeToVault: async (fileName, fileContent, autoEncrypt=true) => {

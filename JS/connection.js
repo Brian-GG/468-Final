@@ -36,19 +36,21 @@ function handleServerCreation() {
             case 'REQUEST_FILE':
                 let peerName = json.data.peerName;
                 let fileName = json.data.fileName;
+                let encryptedFileName = `${fileName}.enc`;
+
                 const confirmation = await confirm({ message: `${peerName} is requesting the file ${fileName}. Do you want to send it?` });
                 if (confirmation)
                 {
                     try
                     {
-                        let filePath = path.join(utils.getFileVaultDirectory(), fileName);
+                        let filePath = path.join(utils.getFileVaultDirectory(), encryptedFileName);
                         if (!fs.existsSync(filePath))
                         {
                             socket.write(JSON.stringify({ type: 'FILE_NOT_FOUND', data: { fileName, peerName } }));
                             break;
                         }
                         
-                        let decryptedBuffer = await decryptFile(fileName, config.derivedKey);
+                        let decryptedBuffer = await decryptFile(encryptedFileName, config.derivedKey);
                         if (!decryptedBuffer)
                         {
                             socket.write(JSON.stringify({ type: 'FILE_DECRYPTION_FAILED', data: { fileName, peerName } }));

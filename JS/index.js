@@ -213,6 +213,7 @@ async function requestFileFromPeer()
             });
         }
         let fileToRequest = await input({message: `Enter the index of file to request: `});
+        console.log(`Requesting consent to downoad file ${fileToRequest} from ${peerName}...`);
         fileToRequest = parseInt(fileToRequest) - 1;
         if (fileToRequest < 0 || fileToRequest >= files.length)
         {
@@ -224,6 +225,7 @@ async function requestFileFromPeer()
         const response = await handleRequestFileFromPeer(peer.host, peer.port, file.name, SERVICE_NAME);
         if (response.type == 'FILE_RECEIVED')
         {
+            console.log(`File ${file.name} received from ${peerName}`);
             await writeToVault(response.data.fileName, response.data.fileContent, true);
             console.log(`\nFile ${response.data.fileName} received from ${peerName}`);
         }
@@ -251,7 +253,7 @@ async function requestFileFromPeer()
 
 async function handleCommands()
 {
-    const availableCommands = ['list', 'connect', 'exit', 'friends', 'help'];
+    const availableCommands = ['list', 'connect', 'exit', 'friends', 'files', 'request', 'help'];
     console.log(`P2P FILE SHARING APP\n\nAvailable commands: ${availableCommands.join(', ')}`);
     
     while (true)
