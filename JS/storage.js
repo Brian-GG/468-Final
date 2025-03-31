@@ -24,7 +24,7 @@ module.exports = {
         const fileList = [];
         const config = readConfig();
 
-        files.forEach(file => {
+        files.forEach(async file => {
             const filePath = path.join(fileVaultDir, file);
             const stats = fs.statSync(filePath);
 
@@ -33,7 +33,7 @@ module.exports = {
                 const fileContent = fs.readFileSync(filePath, 'utf8');
                 try
                 {
-                    const { encryptedFile, iv, authTag } = encryptFile(fileContent, config.derivedKey);
+                    const { encryptedFile, iv, authTag } = await encryptFile(fileContent, config.derivedKey);
                     const encryptedFilePath = `${filePath}.enc`;
 
                     const metadata = JSON.stringify({ iv, authTag });
