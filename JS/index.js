@@ -148,7 +148,8 @@ async function connectToPeer(peerName) {
 
 async function handleCommands()
 {
-    console.log(`P2P FILE SHARING APP\n\nAvailable commands: list`);
+    const availableCommands = ['list', 'connect', 'exit', 'friends', 'help'];
+    console.log(`P2P FILE SHARING APP\n\nAvailable commands: ${availableCommands.join(', ')}`);
     
     while (true)
     {
@@ -196,6 +197,9 @@ async function handleCommands()
                 process.exit(0);
             case 'friends':
                 listTrustedPeers();
+                break;
+            case 'help':
+                console.log(`Available commands: ${availableCommands.join(', ')}`);
                 break;
             default:
                 console.log('Unknown command');
