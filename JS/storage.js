@@ -1,21 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const argon2 = require('argon2');
-const { password } = require('@inquirer/prompts');
 const { getFileVaultDirectory } = require("./utils");
 const { readConfig } = require('./state');
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
-
-const ARGON2_OPTIONS = {
-    type: argon2.argon2id,
-    memoryCost: 2 ** 16,
-    timeCost: 4,
-    parallelism: 2,
-}
 
 module.exports = {
     scanFileVault: () => {
@@ -69,7 +60,6 @@ module.exports = {
             }
         });
 
-        console.log(fileList);
         return fileList;
     }
 }
