@@ -65,7 +65,12 @@ function handleServerCreation() {
 
                         setTimeout(() => {
                             socket.write(decryptedBuffer);
-                        }, 100);
+
+                            setTimeout(() => {
+                                socket.write('\n\n--FILE_TRANSFER_COMPLETE0--\n\n');
+                                console.log(`File ${fileName} sent to ${peerName}`);
+                            }, 100);
+                        }, 1000);
                     }
                     catch (error)
                     {
@@ -249,6 +254,20 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
         });
 
         socket.on('data', (data) => {
+            try
+            {
+                const strData = data.toString();
+                if (strData.includes('FILE_TRANSFER_COMPLETE'))
+                {
+                    console.log('File transfer complete marker received');
+                    isReceivingFile = false;
+                    socket.end();
+                    return;
+                }
+            } catch (e) {
+                // Continue buffer handling
+            }
+            
             if (fileMetadata && isReceivingFile)
             {
                 if (!fileBuffer)
@@ -261,7 +280,11 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                 receivedBytes += data.length;
                 
                 if (receivedBytes >= fileMetadata.fileSize)
+                {
+                    console.log('\nFile download complete!');
                     isReceivingFile = false;
+                    socket.end();
+                }
                 
                 return;
             }
@@ -275,7 +298,7 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                 {
                     case 'FILE_METADATA':
                         fileMetadata = response.data;
-                        console.log(`Receiving ${fileMetadata.fileName} (${fileMetadata.fileSize} bytes)`);
+                        console.log(`\nReceiving ${fileMetadata.fileName} (${fileMetadata.fileSize} bytes)`);
                         isReceivingFile = true;
                         break;
                     case 'FILE_REQUEST_DECLINED':
@@ -322,22 +345,28 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
             
             if (fileMetadata && fileBuffer)
             {
+                console.log(`\nFile transfer complete. Received ${receivedBytes}/${fileMetadata.fileSize} bytes.`);
+                
                 if (fileMetadata.fileHash)
                 {
+                    console.log('Verifying file integrity...');
                     const receivedHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
                     
                     if (receivedHash !== fileMetadata.fileHash)
                     {
+                        console.error('File integrity check failed!');
                         reject(new Error('File integrity verification failed'));
                         return;
                     }
+                    
+                    console.log('File integrity verified.');
                 }
                 
                 resolve({
                     type: 'FILE_RECEIVED',
                     data: {
                         fileName: fileMetadata.fileName,
-                        fileBuffer,
+                        fileContent: fileBuffer,
                         fileSize: fileBuffer.length
                     }
                 });

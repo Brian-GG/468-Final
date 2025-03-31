@@ -11,7 +11,6 @@ var SERVICE_NAME;
 var SERVICE_TYPE;
 
 const peers = new Map();
-let files = [];
 
 function initAgent()
 {
@@ -23,10 +22,7 @@ function initAgent()
 
     files = scanFileVault();
 
-    setInterval(() => {
-        files = scanFileVault();
-        console.log(`Files in vault: ${files.length}`);
-    }, 30 * 1000);
+    setInterval(scanFileVault, 30 * 1000);
 
     process.on('SIGINT', () => {
         console.log('\nShutting down agent');
@@ -159,7 +155,7 @@ async function getPeerFiles(peerName)
     if (!config.trustedPeers || !config.trustedPeers[peerName])
     {
         console.log(`Peer ${peerName} is not trusted. Cannot retrieve files.`);
-        return;
+        return 'NOT_TRUSTED';
     }
 
     try
@@ -205,6 +201,11 @@ async function requestFileFromPeer()
     try
     {
         const files = await getPeerFiles(peerName);
+        if (files === 'NOT_TRUSTED')
+        {
+            return;
+        }
+
         if (files)
         {
             console.log(`Files from ${peerName}:`);
@@ -225,9 +226,8 @@ async function requestFileFromPeer()
         const response = await handleRequestFileFromPeer(peer.host, peer.port, file.name, SERVICE_NAME);
         if (response.type == 'FILE_RECEIVED')
         {
-            console.log(`File ${file.name} received from ${peerName}`);
             await writeToVault(response.data.fileName, response.data.fileContent, true);
-            console.log(`\nFile ${response.data.fileName} received from ${peerName}`);
+            console.log(`\nFile ${response.data.fileName} received from ${peerName} and saved to vault.`);
         }
         else if (response.type == 'FILE_REQUEST_DECLINED')
         {
@@ -244,7 +244,8 @@ async function requestFileFromPeer()
             console.error(`Unknown response type: ${response.type}`);
             return;
         }
-    } catch (error)
+    }
+    catch (error)
     {
         console.error(`Error requesting file from peer ${peerName}:`, error);
         return;
