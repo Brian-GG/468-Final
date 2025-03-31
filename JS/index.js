@@ -173,7 +173,7 @@ async function handleCommands()
                     try
                     {
                         const peerSocket = await handleClientConnection(peer.host, peer.port);
-                        peerSocket.write(`Hello from ${SERVICE_NAME}\n`, (err) => {
+                        peerSocket.write(JSON.stringify({ type: `PEER_CONNECTED`, data: { peerName: SERVICE_NAME } }), (err) => {
                             if (err)
                             {
                                 console.error("Error writing to socket: ", err);
@@ -181,6 +181,7 @@ async function handleCommands()
                                 return;
                             }
                         });
+                        peerSocket.end();
 
                         if (config.trustedPeers[peerName])
                         {

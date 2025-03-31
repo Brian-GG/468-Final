@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const utils = require('./utils');
 const { readConfig } = require('./state');
+const { scanFileVault } = require('./storage');
 
 const config = readConfig();
 
@@ -21,6 +22,20 @@ function handleServerCreation() {
 
   const server = tls.createServer(options, (socket) => {
     socket.on('data', (data) => {
+        let json = JSON.parse(data.toString());
+        switch (json.type)
+        {
+            case 'PEER_CONNECTED':
+                console.log(`${json.data.peerName} has added you as a trusted peer.`);
+            case 'REQUEST_FILES':
+                console.log('Received REQUEST_FILES');
+                let files = scanFileVault();
+                socket.write(JSON.stringify({ type: 'FILES_LIST', files }));
+                break;
+            default:
+                console.log('Unknown message type:', json.type);
+                break;
+        }
         console.log(`Received: ${data.toString()}`);
     });
 
