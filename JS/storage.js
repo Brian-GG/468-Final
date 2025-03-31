@@ -28,6 +28,10 @@ module.exports = {
             const filePath = path.join(fileVaultDir, file);
             const stats = fs.statSync(filePath);
 
+            // Skip hidden files
+            if (file.startsWith('.'))
+                return;
+
             if (!file.endsWith('.enc'))
             {
                 const fileContent = fs.readFileSync(filePath, 'utf8');
@@ -65,6 +69,7 @@ module.exports = {
             }
         });
 
+        console.log(fileList);
         return fileList;
     }
 }
