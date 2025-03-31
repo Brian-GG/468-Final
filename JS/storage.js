@@ -188,7 +188,7 @@ module.exports = {
     }
 }
 
-async function encryptFile(file, derivedKey)
+function encryptFile(file, derivedKey)
 {
     const data = Buffer.isBuffer(file) ? file : Buffer.from(file);
 
