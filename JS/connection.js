@@ -31,13 +31,12 @@ function handleServerCreation() {
             case 'REQUEST_FILES':
                 console.log('Received REQUEST_FILES');
                 let files = scanFileVault();
-                socket.write(JSON.stringify({ type: 'FILES_LIST', files }));
+                socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files } }));
                 break;
             default:
                 console.log('Unknown message type:', json.type);
                 break;
         }
-        console.log(`Received: ${data.toString()}`);
     });
 
     socket.on('end', () => {
@@ -49,9 +48,7 @@ function handleServerCreation() {
     });
   });
 
-  server.listen(config.port, () => {
-    console.log(`Server listening on port ${config.port}`);
-  });
+  server.listen(config.port, () => {});
 
   server.on('tlsClientError', (err) => {
     console.error('Client authentication error:', err);
@@ -113,7 +110,9 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
 
         let responseData = '';
 
-        const socket = tls.connect(options, () => {
+        const socket = tls.connect(options);
+
+        socket.on('connect', () => {
             clearTimeout(connectionTimeout);
             const message = JSON.stringify({
                 type: messageType,
@@ -127,43 +126,42 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
                     socket.destroy();
                     reject(err);
                 }
-
-                socket.end();
             });
+            socket.end();
+        });
 
-            socket.on('data', (data) => {
-                responseData += data.toString();
-            });
+        socket.on('data', (data) => {
+            responseData += data.toString();
+        });
 
-            socket.on('end', () => {
-                clearTimeout(connectionTimeout);
-                socket.destroy();
+        socket.on('end', () => {
+            clearTimeout(connectionTimeout);
+            socket.destroy();
 
-                try
+            try
+            {
+                if (responseData)
                 {
-                    if (responseData)
-                    {
-                        responseData = JSON.parse(responseData);
-                        resolve(responseData);
-                    }
-                    else
-                    {
-                        resolve(null);
-                    }
+                    responseData = JSON.parse(responseData);
+                    resolve(responseData);
                 }
-                catch (err)
+                else
                 {
-                    console.error('Error parsing response:', err);
-                    reject(err);
+                    resolve(null);
                 }
-            });
-
-            socket.on('error', (err) => {
-                console.error('Socket error:', err);
-                socket.destroy();
+            }
+            catch (err)
+            {
+                console.error('Error parsing response:', err);
                 reject(err);
-            });
-        })
+            }
+        });
+
+        socket.on('error', (err) => {
+            console.error('Socket error:', err);
+            socket.destroy();
+            reject(err);
+        });
     });
 }
 

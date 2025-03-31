@@ -146,6 +146,52 @@ async function connectToPeer(peerName) {
     return { peer, continueConnecting: confirmation };
 }
 
+async function getPeerFiles(peerName)
+{
+    const config = readConfig();
+    let peer = peers.get(peerName);
+    if (!peer)
+    {
+        console.log(`Peer ${peerName} not found`);
+        return;
+    }
+
+    if (!config.trustedPeers || !config.trustedPeers[peerName])
+    {
+        console.log(`Peer ${peerName} is not trusted. Cannot retrieve files.`);
+        return;
+    }
+
+    try
+    {
+        const response = await sendMessageToPeer(peer.host, peer.port, 'REQUEST_FILES', { peerName: SERVICE_NAME });
+        if (response && response.type == 'FILES_LIST')
+        {
+            if (response.data.files.length === 0)
+            {
+                console.log(`No files found on peer ${peerName}`);
+                return;
+            }
+
+            response.data.files.forEach((file, idx) => {
+                console.log(`${idx + 1}. ${file.name} (${file.size} bytes)`);
+            });
+
+            return response.data.files;
+        }
+        else
+        {
+            console.log(`Failed to retrieve files from peer ${peerName}`);
+            return;
+        }
+    }
+    catch (error)
+    {
+        console.error(`Error retrieving files from peer ${peerName}:`, error);
+        return;
+    }
+}
+
 async function handleCommands()
 {
     const availableCommands = ['list', 'connect', 'exit', 'friends', 'help'];
@@ -156,6 +202,7 @@ async function handleCommands()
         const menuOpt = await input({message: `Please enter a command: `});
         const command = menuOpt;
         const config = readConfig();
+        let peerName;
         
         switch(command.toLowerCase())
         {
@@ -163,7 +210,7 @@ async function handleCommands()
                 listAvailablePeers();
                 break;
             case 'connect':
-                const peerName = await input({message: `Enter the peer name to connect to: `});
+                peerName = await input({message: `Enter the peer name to connect to: `});
                 const connectionDetails = await connectToPeer(peerName);
 
                 if (connectionDetails && connectionDetails.continueConnecting)
@@ -197,6 +244,10 @@ async function handleCommands()
                 process.exit(0);
             case 'friends':
                 listTrustedPeers();
+                break;
+            case 'files':
+                peerName = await input({message: `Enter the peer name to retrieve file list from: `});
+                await getPeerFiles(peerName);
                 break;
             case 'help':
                 console.log(`Available commands: ${availableCommands.join(', ')}`);
