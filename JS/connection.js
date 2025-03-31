@@ -2,6 +2,7 @@ const tls = require('tls');
 const fs = require('fs');
 const path = require('path');
 const utils = require('./utils');
+const crypto = require('crypto');
 const { readConfig } = require('./state');
 const { scanFileVault, decryptFile } = require('./storage');
 const { confirm } = require('@inquirer/prompts');
