@@ -27,6 +27,7 @@ function handleServerCreation() {
         {
             case 'PEER_CONNECTED':
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
+                break;
             case 'REQUEST_FILES':
                 console.log('Received REQUEST_FILES');
                 let files = scanFileVault();
@@ -57,7 +58,7 @@ function handleServerCreation() {
   });
 }
 
-async function handleClientConnection(host, port) {
+async function handleClientConnection(host, port, timeout=10000) {
     const certDir = utils.getCertDirectory();
 
     return new Promise((resolve, reject) => {
@@ -72,38 +73,102 @@ async function handleClientConnection(host, port) {
             honorCipherOrder: true
         };
 
+        const connectionTimeout = setTimeout(() => {
+            console.error('Connection timed out');
+            socket.destroy();
+            reject(new Error('Connection timed out'));
+        }, timeout);
+
         const socket = tls.connect(options, () => {
-            console.log('Client connected to server (TLS connection success)');  // Now TLS authenticated
-
-            socket.write('Hello from client\n', (err) => {
-                if (err) {
-                    console.error("Error writing to socket: ", err);
-                    socket.destroy();
-                    reject(err);
-                    return;
-                }
-            });
-            resolve(socket); // Resolve the promise on successful connection, no error at write time.
-
-        });
-
-        socket.on('data', (data) => {
-            console.log(`Received: ${data.toString()}`);
-            socket.end();
-        });
-        socket.on('end', () => {
-            console.log('Connection closed');
+            clearTimeout(connectionTimeout);
+            resolve(socket);
         });
 
         socket.on('error', (err) => {
             console.error('Socket error:', err);
-            reject(err); // Reject the promise if the error occurred during the connection
+            reject(err);
         });
+    });
+}
 
+async function sendMessageToPeer(host, port, messageType, messageData={}, timeout=10000)
+{
+    const certDir = utils.getCertDirectory();
+
+    return new Promise((resolve, reject) => {
+        const options = {
+            host: host,
+            port: port,
+            key: fs.readFileSync(path.join(certDir, 'client.key')),
+            cert: fs.readFileSync(path.join(certDir, 'client.crt')),
+            ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
+            rejectUnauthorized: false,
+            ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256',
+            honorCipherOrder: true
+        };
+
+        const connectionTimeout = setTimeout(() => {
+            reject('Connection timed out');
+        }, timeout);
+
+        let responseData = '';
+
+        const socket = tls.connect(options, () => {
+            clearTimeout(connectionTimeout);
+            const message = JSON.stringify({
+                type: messageType,
+                data: messageData
+            });
+
+            socket.write(message, (err) => {
+                if (err)
+                {
+                    console.error('Error writing to socket:', err);
+                    socket.destroy();
+                    reject(err);
+                }
+
+                socket.end();
+            });
+
+            socket.on('data', (data) => {
+                responseData += data.toString();
+            });
+
+            socket.on('end', () => {
+                clearTimeout(connectionTimeout);
+                socket.destroy();
+
+                try
+                {
+                    if (responseData)
+                    {
+                        responseData = JSON.parse(responseData);
+                        resolve(responseData);
+                    }
+                    else
+                    {
+                        resolve(null);
+                    }
+                }
+                catch (err)
+                {
+                    console.error('Error parsing response:', err);
+                    reject(err);
+                }
+            });
+
+            socket.on('error', (err) => {
+                console.error('Socket error:', err);
+                socket.destroy();
+                reject(err);
+            });
+        })
     });
 }
 
 module.exports = {
     handleClientConnection,
-    handleServerCreation
+    handleServerCreation,
+    sendMessageToPeer
 }

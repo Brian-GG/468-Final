@@ -3,7 +3,7 @@ const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
 const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP } = require('./utils');
-const { handleServerCreation, handleClientConnection } = require('./connection');
+const { handleServerCreation, handleClientConnection, sendMessageToPeer } = require('./connection');
 const { scanFileVault } = require('./storage');
 
 var PORT;
@@ -172,17 +172,8 @@ async function handleCommands()
 
                     try
                     {
-                        const peerSocket = await handleClientConnection(peer.host, peer.port);
-                        peerSocket.write(JSON.stringify({ type: `PEER_CONNECTED`, data: { peerName: SERVICE_NAME } }), (err) => {
-                            if (err)
-                            {
-                                console.error("Error writing to socket: ", err);
-                                peerSocket.destroy();
-                                return;
-                            }
-                        });
-                        peerSocket.end();
-
+                        const _ = await sendMessageToPeer(peer.host, peer.port, 'PEER_CONNECTED', { peerName: SERVICE_NAME });
+                        
                         if (config.trustedPeers[peerName])
                         {
                             config.trustedPeers[peerName].lastConnected = Date.now();
