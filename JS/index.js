@@ -3,8 +3,8 @@ const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
 const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP } = require('./utils');
-const { handleServerCreation, handleClientConnection, sendMessageToPeer } = require('./connection');
-const { scanFileVault } = require('./storage');
+const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
+const { scanFileVault, writeToVault } = require('./storage');
 
 var PORT;
 var SERVICE_NAME;
@@ -164,7 +164,7 @@ async function getPeerFiles(peerName)
 
     try
     {
-        const response = await sendMessageToPeer(peer.host, peer.port, 'REQUEST_FILES', { peerName: SERVICE_NAME });
+        const response = await sendMessageToPeer(peer.host, peer.port, 'REQUEST_FILES_LIST', { peerName: SERVICE_NAME });
         if (response && response.type == 'FILES_LIST')
         {
             if (response.data.files.length === 0)
@@ -188,6 +188,63 @@ async function getPeerFiles(peerName)
     catch (error)
     {
         console.error(`Error retrieving files from peer ${peerName}:`, error);
+        return;
+    }
+}
+
+async function requestFileFromPeer()
+{
+    const peerName = await input({message: `Enter the peer name to request files from: `});
+    const peer = peers.get(peerName);
+    if (!peer)
+    {
+        console.error(`Peer ${peerName} not found`);
+        return;
+    }
+
+    try
+    {
+        const files = await getPeerFiles(peerName);
+        if (files)
+        {
+            console.log(`Files from ${peerName}:`);
+            files.forEach(file => {
+                console.log(`- ${file.name}`);
+            });
+        }
+        let fileToRequest = await input({message: `Enter the index of file to request: `});
+        fileToRequest = parseInt(fileToRequest) - 1;
+        if (fileToRequest < 0 || fileToRequest >= files.length)
+        {
+            console.error(`Invalid file index`);
+            return;
+        }
+        
+        const file = files[fileToRequest];
+        const response = await handleRequestFileFromPeer(peer.host, peer.port, file.name, SERVICE_NAME);
+        if (response.type == 'FILE_RECEIVED')
+        {
+            await writeToVault(response.data.fileName, response.data.fileContent, true);
+            console.log(`\nFile ${response.data.fileName} received from ${peerName}`);
+        }
+        else if (response.type == 'FILE_REQUEST_DECLINED')
+        {
+            console.error(`File request for ${file.name} declined by ${peerName}`);
+            return;
+        }
+        else if (response.type == 'FILE_NOT_FOUND')
+        {
+            console.error(`File ${file.name} not found on peer ${peerName}`);
+            return;
+        }
+        else
+        {
+            console.error(`Unknown response type: ${response.type}`);
+            return;
+        }
+    } catch (error)
+    {
+        console.error(`Error requesting file from peer ${peerName}:`, error);
         return;
     }
 }
@@ -248,6 +305,9 @@ async function handleCommands()
             case 'files':
                 peerName = await input({message: `Enter the peer name to retrieve file list from: `});
                 await getPeerFiles(peerName);
+                break;
+            case 'request':
+                requestFileFromPeer();
                 break;
             case 'help':
                 console.log(`Available commands: ${availableCommands.join(', ')}`);
