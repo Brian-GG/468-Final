@@ -3,7 +3,7 @@ from time import sleep
 from typing import cast
 import socket
 
-target_port = 5000
+target_port = 3000
 
 class Listener(ServiceListener):
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
