@@ -1,17 +1,25 @@
 import os
 import json
+import re
 import shutil
 import datetime
+import hashlib
 from login import *
 from encryption import *
 from pathlib import Path
+from os import listdir
+from os.path import isfile, join
 
 def create_user_file():
     user_file = "user.json"
     if not os.path.exists(user_file):
         with open(user_file, "w") as f:
             json.dump({}, f)
-        newPassword = input("New Client! Create a Password:\n")
+        while True:
+            newPassword = input("New Client! Create a Password:\n")
+            if is_valid_password(newPassword):
+                break
+            print("Password must be at least 8 characters long, contain at least one uppercase letter, one lowercase letter, one digit, and one special character.")
         password = register_user(newPassword)
         files_folder= "file_vault"
         
@@ -20,7 +28,7 @@ def create_user_file():
             files_folder.mkdir(parents=True, exist_ok=True)
         
         generate_self_cert(password)
-
+        generate_uid()
         return password
 
 def create_data_files():
@@ -45,9 +53,10 @@ def import_files(password):
     
     dest_path = dest_folder / original_path.name
     shutil.copy2(str(original_path), str(dest_path))
-
+    update_files_list(password)
     encrypt_file(str(dest_path), password)
     print("File Uploaded!\n")
+    return
 
 def generate_self_cert(password):
     key = rsa.generate_private_key(
@@ -91,9 +100,73 @@ def generate_self_cert(password):
     
     encrypt_file("file_vault/key.pem", password)
     
+def update_files_list(password):
+    onlyfiles = [f for f in listdir("file_vault") if isfile(join("file_vault", f))]
+    filtered_files = [f for f in onlyfiles if ".pem" not in f and ".enc" not in f]
+    uid = get_uid()
+    current = json.loads(open("filedb.json").read())
+    for file in filtered_files:
+        if file not in current:
+            hash = hash_file(f"file_vault/{file}")
+            signature = sign_file_hash(hash, password)
+            current[file] = {
+                "uid": uid,
+                "hash": hash,
+                "signature": base64.b64encode(signature).decode('utf-8'),
+            }
+            with open("filedb.json", "w") as f:
+                json.dump(current, f, indent=4)
+
+
+
+
+def export_file(password):
+    onlyfiles = [f for f in listdir("file_vault") if isfile(join("file_vault", f))]
+    filtered_files = [f for f in onlyfiles if ".pem" not in f]
+    path = os.path.abspath("file_vault")
+    parent_dir = Path(path).parents[1]
+    print("Available Files:")
+    for i, file in enumerate(filtered_files):
+        if ".pem" not in file:
+            print(f"{i+1}. {file}")
+    choice = input("Select a file to export: ")
+    if choice.isdigit() and 1 <= int(choice) <= len(onlyfiles):
+        selected_file = onlyfiles[int(choice) - 1]
+        file_path = os.path.join("file_vault", selected_file)
+        new_file_path = decrypt_file(file_path, password)
+        shutil.move(new_file_path, parent_dir) 
+        print(f"File {selected_file} exported successfully!")
+    else:
+        print("Invalid choice. Please try again.")
     
-
-
+    return
     
+def generate_uid():
+    #returns a unique identifier for the user based on public key truncated to 8 bytes
+    with open("file_vault/certificate.pem", "rb") as f:
+        cert = x509.load_pem_x509_certificate(f.read())
+        public_key = cert.public_key()
+        public_key_bytes = public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        uid = hashlib.sha256(public_key_bytes).hexdigest()[:8]
+        with open("uid.txt", "w") as uid_file:
+            uid_file.write(uid)
 
+def get_uid():
+    #returns the unique identifier for the user
+    with open("uid.txt", "r") as uid_file:
+        uid = uid_file.read()
+    return uid
 
+def is_valid_password(password):
+    if (
+        len(password) >= 8 and
+        re.search(r"[A-Z]", password) and
+        re.search(r"[a-z]", password) and
+        re.search(r"\d", password) and
+        re.search(r"[!@#$%^&*(),.?\":{}|<>]", password)
+    ):
+        return True
+    return False

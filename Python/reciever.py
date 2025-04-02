@@ -2,15 +2,26 @@ from zeroconf import ServiceBrowser, ServiceListener, Zeroconf, ZeroconfServiceT
 from time import sleep
 from typing import cast
 import socket
+import threading
 
 target_port = 3000
 
 class Listener(ServiceListener):
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        print(f"Service {name} updated")
+        info = zc.get_service_info(type_, name)
+        if info is None:
+            print(f"Could not get details for {name}. The service may not be available")
+            return
+        if info and info.port == target_port:
+            print(f"Service {name} updated")
 
     def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        print(f"Service {name} removed")
+        info = zc.get_service_info(type_, name)
+        if info is None:
+            print(f"Could not get details for {name}. The service may not be available")
+            return
+        if info and info.port == target_port:
+            print(f"Service {name} removed")
 
     def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         info = zc.get_service_info(type_, name)
@@ -43,16 +54,21 @@ def joinNetwork():
         properties={"secure": "true", "version": "1.0"},
     )
 
-    print(f"\nBrowsing {len(services)} service(s), press Ctrl-C to exit...\n")
+    print(f"\nBrowsing {len(services)} service(s)\n")
     browser = ServiceBrowser(zeroconf, services, listener)
-    print("Registration of a service, press Ctrl-C to exit...")
+    print("Registration of a service\n")
     zeroconf.register_service(myInfo)
+    stop_event = threading.Event()
 
+    def keep_running():
+            try:
+                stop_event.wait()
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                stop_event.set()
+                zeroconf.close()
+    thread = threading.Thread(target=keep_running, daemon=True)
+    thread.start()
 
-    try:
-        while True:
-            sleep(0.1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        zeroconf.close()
+    return
+
