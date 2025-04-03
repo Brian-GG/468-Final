@@ -39,7 +39,7 @@ def encrypt_file(file_path, password):
 
     os.remove(file_path)
 
-def decrypt_file(encrypted_file_path, password):
+def decrypt_file(encrypted_file_path, password, file_return):
     with open(encrypted_file_path, "r") as f:
         encrypted_data = json.load(f)
 
@@ -48,6 +48,8 @@ def decrypt_file(encrypted_file_path, password):
     f = Fernet(key)
     plaintext = f.decrypt(encrypted_data)
 
+    if file_return == 0:
+        return plaintext
     decrypted_file_path = encrypted_file_path.replace(".enc", "")
     with open(decrypted_file_path, "wb") as f:
         f.write(plaintext)

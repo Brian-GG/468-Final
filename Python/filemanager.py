@@ -133,7 +133,7 @@ def export_file(password):
     if choice.isdigit() and 1 <= int(choice) <= len(onlyfiles):
         selected_file = onlyfiles[int(choice) - 1]
         file_path = os.path.join("file_vault", selected_file)
-        new_file_path = decrypt_file(file_path, password)
+        new_file_path = decrypt_file(file_path, password, file_return=1)
         shutil.move(new_file_path, parent_dir) 
         print(f"File {selected_file} exported successfully!")
     else:
