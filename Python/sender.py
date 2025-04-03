@@ -8,10 +8,10 @@ from encryption import decrypt_file
 def create_tls_connection(peer, password):
     try:
         
-        with open("file_vault/certificate.pem", "rb") as f:
+        with open("file_vault/client.crt", "rb") as f:
             certificate_data = f.read()
                 
-        decrypted_key_data = decrypt_file("file_vault/key.pem.enc", password, 0)
+        decrypted_key_data = decrypt_file("file_vault/client.key.enc", password, 0)
 
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         context.load_cert_chain(
@@ -20,9 +20,9 @@ def create_tls_connection(peer, password):
         )
         context.verify_mode = ssl.CERT_REQUIRED
 
-        with socket.create_connection((peer["address"], peer["port"])) as sock:
-            with context.wrap_socket(sock, server_hostname=peer["hostname"]) as tls_sock:
-                print(f"Secure connection established with {peer['hostname']}")
+        with socket.create_connection(peer["address"], 3000) as sock:
+            with context.wrap_socket(sock, server_hostname=peer["name"]) as tls_sock:
+                print(f"Secure connection established with {peer['name']}")
                 return True
     except Exception as e:
         print(f"TLS connection failed: {e}")
@@ -31,29 +31,18 @@ def create_tls_connection(peer, password):
 def start_tls_server(password):
     try:
         # Decrypt the private key
-        decrypted_key_data = decrypt_file("file_vault/key.pem.enc", password, 0)
+        decrypted_key_data = decrypt_file("file_vault/server.key.enc", password, 0)
 
         # Create an SSL context for the server
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         context.load_cert_chain(
-            certfile="file_vault/certificate.pem",
+            certfile="file_vault/server.crt",
             keyfile=io.BytesIO(decrypted_key_data)
         )
         context.verify_mode = ssl.CERT_REQUIRED  # Require client certificate
 
-        # Load trusted peer certificates from peers.json
-        if os.path.exists("peers.json"):
-            with open("peers.json", "r") as f:
-                trusted_peers = json.load(f)
 
-            # Create a temporary file to store trusted certificates
-            with open("file_vault/trusted_peers.pem", "w") as cert_file:
-                for peer in trusted_peers.values():
-                    if "public_key" in peer:
-                        cert_file.write(peer["public_key"] + "\n")
-
-            # Load the trusted certificates into the SSL context
-            context.load_verify_locations(cafile="file_vault/trusted_peers.pem")
+        context.load_verify_locations(cafile="file_vault/ca.crt")  # Load CA certificate for client verification
 
         # Create a server socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as server_socket:
@@ -101,10 +90,8 @@ def add_trusted_peer(peer):
         else:
             trusted_peers = {}
 
-        trusted_peers[peer["hostname"]] = {
-            "address": peer["address"],
-            "port": peer["port"],
-            "public_key": peer["public_key"],
+        trusted_peers[peer["name"]] = {
+            "address": peer["addresses"],
             "public_key_hash": peer["public_key_hash"],
         }
 

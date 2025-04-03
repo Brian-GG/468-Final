@@ -59,50 +59,17 @@ def import_files(password):
     return
 
 def generate_self_cert(password):
-    key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-    )
+    ca_key, ca_cert = create_root_ca()
+    create_server_cert("127.0.0.1", ca_key, ca_cert)
+    create_client_cert(ca_key, ca_cert)
+    encrypt_file("file_vault/ca.key", password)
+    encrypt_file("file_vault/client.key", password)
+    encrypt_file("file_vault/server.key", password)
 
-    with open("file_vault/key.pem", "wb") as f:
-        f.write(key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.BestAvailableEncryption(b"passphrase"),
-        ))
 
-    subject = issuer = x509.Name([
-    x509.NameAttribute(NameOID.COUNTRY_NAME, "CA"),
-    x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Ontario"),
-    x509.NameAttribute(NameOID.LOCALITY_NAME, "Richmond Hill"),
-    x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Grigore Inc"),
-    x509.NameAttribute(NameOID.COMMON_NAME, "secureshare.com"),
-    ])
-    cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        issuer
-    ).public_key(
-        key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
-        datetime.datetime.now(datetime.timezone.utc)
-    ).not_valid_after(
-        datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365)
-    ).add_extension(
-        x509.SubjectAlternativeName([x509.DNSName("localhost")]),
-        critical=False,
-    ).sign(key, hashes.SHA256())
-    
-    with open("file_vault/certificate.pem", "wb") as f:
-        f.write(cert.public_bytes(serialization.Encoding.PEM))
-    
-    encrypt_file("file_vault/key.pem", password)
-    
 def update_files_list(password):
     onlyfiles = [f for f in listdir("file_vault") if isfile(join("file_vault", f))]
-    filtered_files = [f for f in onlyfiles if ".pem" not in f and ".enc" not in f]
+    filtered_files = [f for f in onlyfiles if ".crt" not in f and ".enc" not in f]
     uid = get_uid()
     current = json.loads(open("filedb.json").read())
     for file in filtered_files:
@@ -117,24 +84,29 @@ def update_files_list(password):
             with open("filedb.json", "w") as f:
                 json.dump(current, f, indent=4)
 
-
-
-
 def export_file(password):
     onlyfiles = [f for f in listdir("file_vault") if isfile(join("file_vault", f))]
-    filtered_files = [f for f in onlyfiles if ".pem" not in f]
+    filtered_files = [f for f in onlyfiles if not (f.endswith(".crt") or f.endswith(".key.enc"))]
     path = os.path.abspath("file_vault")
     parent_dir = Path(path).parents[1]
     print("Available Files:")
     for i, file in enumerate(filtered_files):
-        if ".pem" not in file:
+        if ".crt" not in file and ".key" not in file:
             print(f"{i+1}. {file}")
     choice = input("Select a file to export: ")
     if choice.isdigit() and 1 <= int(choice) <= len(onlyfiles):
         selected_file = onlyfiles[int(choice) - 1]
         file_path = os.path.join("file_vault", selected_file)
-        new_file_path = decrypt_file(file_path, password, file_return=1)
-        shutil.move(new_file_path, parent_dir) 
+        try:
+            new_file_path = decrypt_file(file_path, password, file_return=1)
+        except:
+            print("Error decrypting file. Incorrect List Entry?")
+            return
+        try:
+            shutil.move(new_file_path, parent_dir) 
+        except Exception as e:
+            print(f"Error moving file: {e}")
+            return
         print(f"File {selected_file} exported successfully!")
     else:
         print("Invalid choice. Please try again.")
@@ -143,7 +115,7 @@ def export_file(password):
     
 def generate_uid():
     #returns a unique identifier for the user based on public key truncated to 8 bytes
-    with open("file_vault/certificate.pem", "rb") as f:
+    with open("file_vault/server.crt", "rb") as f:
         cert = x509.load_pem_x509_certificate(f.read())
         public_key = cert.public_key()
         public_key_bytes = public_key.public_bytes(
