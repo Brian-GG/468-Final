@@ -18,8 +18,10 @@ function handleServerCreation() {
     ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
     requestCert: true,
     rejectUnauthorized: false,
-    ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256',
-    honorCipherOrder: true
+    ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
+    honorCipherOrder: true,
+    minVersion: 'TLSv1.3',
+    maxVersion: 'TLSv1.3'
   };
 
   const server = tls.createServer(options, async (socket) => {
@@ -116,8 +118,10 @@ async function handleClientConnection(host, port, timeout=10000) {
             cert: fs.readFileSync(path.join(certDir, 'client.crt')),
             ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
             rejectUnauthorized: false,
-            ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256',
-            honorCipherOrder: true
+            ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
+            honorCipherOrder: true,
+            minVersion: 'TLSv1.3',
+            maxVersion: 'TLSv1.3'
         };
 
         const connectionTimeout = setTimeout(() => {
