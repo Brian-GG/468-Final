@@ -59,8 +59,6 @@ def start_tls_server(password, stop_event):
         sock.bind(("0.0.0.0", 3000))
         sock.listen(5)
 
-        print("TLS server is listening on port 3000...")
-
         while not stop_event.is_set():
             client_sock, addr = sock.accept()
             conn = SSL.Connection(context, client_sock)
@@ -70,10 +68,8 @@ def start_tls_server(password, stop_event):
                 print(f"TLS handshake successful with {addr}")
                 client_cert = conn.get_peer_certificate()
                 public_key = client_cert.get_pubkey()
-                print(f"rawkey: {public_key}")
                 public_key_pem = crypto.dump_publickey(crypto.FILETYPE_PEM, public_key)
                 peers_hash = hashlib.sha256(public_key_pem).hexdigest()
-                print(f"Peer's public key bruh4: {peers_hash}")
                 if peers_hash not in [peer["public_key_hash"] for peer in trusted_peers.values()]:
                     print("Untrusted peer! Closing connection.")
                     conn.close()
@@ -231,6 +227,8 @@ def handle_client_connection(conn, password):
             conn.send(json.dumps(response).encode())
 
         elif type == "REQUEST_FILE":
+            peer_cert = conn.get_certificate()
+            cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, peer_cert)
             filename = request.get("data", {}).get("filename")
             tmp_filename = filename + ".enc"
             file_path = os.path.join("file_vault", tmp_filename)
@@ -260,7 +258,8 @@ def handle_client_connection(conn, password):
                         "file_data": file_data.hex(),
                         "hash": file_hash,
                         "signature": file_signature,
-                        "uid": uid
+                        "uid": uid,
+                        "certificate": cert_pem
                     }
                     conn.send(json.dumps(response).encode())
                 else:
@@ -271,7 +270,7 @@ def handle_client_connection(conn, password):
             consent = input(f"Accept file {filename}? (yes/no): ")
             if consent.lower() == "yes":
                 conn.send(json.dumps({"message": "File transfer accepted."}).encode())
-                file_data = bytes.fromhex(request.get("data", {}).get("hash"))
+                file_data = bytes.fromhex(request.get("data", {}).get("file_data"))
                 file_hash = request.get("data", {}).get("hash")
                 file_signature = base64.b64decode(request.get("data", {}).get("signature"))
                 if hashlib.sha256(file_data).hexdigest() == file_hash:
@@ -280,12 +279,11 @@ def handle_client_connection(conn, password):
                         format=serialization.PublicFormat.SubjectPublicKeyInfo,
                     )
                     public_key = serialization.load_pem_public_key(public_key_pem)
+                    print(type(public_key))
                     try:
                         public_key.verify(
                             file_signature,
                             file_hash.encode(),
-                            padding.PKCS1v15(),
-                            hashes.SHA256(),
                         )
                         file_path = os.path.join("file_vault", filename)
                         with open(file_path, "wb") as f:
@@ -356,15 +354,13 @@ def handle_response(response, message, password):
                 if hashlib.sha256(file_data).hexdigest() == file_hash:
                     print(f"File '{filename}' passed integrity check.")
 
-                    with open("file_vault/ca.crt", "rb") as f:
-                        ca_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
-                    public_key = ca_cert.get_pubkey().to_cryptography_key()
+                    cert_pem = response_data.get("certificate")
+                    peer_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem.encode())
+                    public_key = peer_cert.get_pubkey().to_cryptography_key()
                     try:
                         public_key.verify(
                             file_signature,
                             file_hash.encode(),
-                            padding.PKCS1v15(),
-                            hashes.SHA256(),
                         )
                         file_path = os.path.join("file_vault", filename)
                         with open(file_path, "wb") as f:

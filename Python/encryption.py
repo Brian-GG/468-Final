@@ -73,7 +73,7 @@ def sign_file_hash(hash, password):
     f = Fernet(key)
     plaintext = f.decrypt(encrypted_data)
     private_key = serialization.load_pem_private_key(plaintext, password=None)
-
+    print(type(private_key))
     signature = private_key.sign(
         hash.encode()
     )
