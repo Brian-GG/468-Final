@@ -2,6 +2,7 @@ from zeroconf import ServiceBrowser, ServiceListener, Zeroconf, ZeroconfServiceT
 from time import sleep
 from typing import cast
 from sender import add_trusted_peer
+from OpenSSL import crypto, SSL
 import socket
 import threading
 import base64
@@ -50,8 +51,8 @@ def joinNetwork(stop_event):
     listener = Listener()
     services = list(ZeroconfServiceTypes.find(zc=zeroconf))
 
-    public_key = base64.b64encode(load_public_key()).decode("utf-8")
-    public_key_hash = hashlib.sha256(public_key.encode()).hexdigest()
+    public_key = load_public_key()
+    public_key_hash = hashlib.sha256(public_key).hexdigest()
     print(f"Public Key Hash: {public_key_hash}")
     service_type = "_secureshare._tcp.local."
     service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
@@ -146,5 +147,6 @@ def discover_peers(zeroconf):
 
 def load_public_key():
     with open("file_vault/client.crt", "rb") as f:
-        public_key = f.read()
+        cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+        public_key = crypto.dump_publickey(crypto.FILETYPE_PEM, cert.get_pubkey())
         return public_key
