@@ -70,8 +70,9 @@ def start_tls_server(password):
                 print(f"TLS handshake successful with {addr}")
                 print("Client certificate:")
                 print(conn.get_peer_certificate())
-                peers_hash = conn.get_peer_certificate().digest("sha256")
-                if peers_hash not in trusted_peers:
+                peers_hash = conn.get_peer_certificate().digest("sha256").decode("utf-8").replace(":", "").lower()
+                print(f"Peer's public key hash: {peers_hash}")
+                if peers_hash not in [peer["public_key_hash"] for peer in trusted_peers.values()]:
                     print("Untrusted peer! Closing connection.")
                     conn.close()
                     continue
