@@ -94,24 +94,38 @@ def save_cert(cert, filename):
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
 def create_root_ca():
-    key = ed25519.Ed25519PrivateKey.generate()
+    # Use a fixed seed for deterministic key generation
+    seed = b"fixed_seed_for_root_ca"
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b"fixed_salt_for_root_ca",
+        iterations=100000,
+    )
+    derived_key = kdf.derive(seed)
+
+    private_key = ed25519.Ed25519PrivateKey.from_private_bytes(derived_key)
     subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Root CA")])
+
+    serial_number = 123456789
+    not_valid_before = datetime(2025, 1, 1)
+    not_valid_after = datetime(2035, 1, 1)
 
     cert = x509.CertificateBuilder() \
         .subject_name(subject) \
         .issuer_name(issuer) \
-        .public_key(key.public_key()) \
-        .serial_number(x509.random_serial_number()) \
-        .not_valid_before(datetime.utcnow()) \
-        .not_valid_after(datetime.utcnow() + timedelta(days=3650)) \
+        .public_key(private_key.public_key()) \
+        .serial_number(serial_number) \
+        .not_valid_before(not_valid_before) \
+        .not_valid_after(not_valid_after) \
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True) \
-        .sign(private_key=key, algorithm=None)
+        .sign(private_key=private_key, algorithm=None)
 
-    save_key(key, "ca.key")
+    save_key(private_key, "ca.key")
     save_cert(cert, "ca.crt")
     print("Root CA created.")
 
-    return key, cert
+    return private_key, cert
 
 def create_server_cert(ip, ca_key, ca_cert):
     key = ed25519.Ed25519PrivateKey.generate()
