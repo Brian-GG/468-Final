@@ -7,6 +7,7 @@ const { readConfig, saveConfig } = require('./state');
 const { scanFileVault, decryptFile } = require('./storage');
 const { confirm, password } = require('@inquirer/prompts');
 const secureContext = require('./secureContext');
+const { getPeers } = require('./mdns-discovery');
 
 function handleServerCreation() {
   const certDir = utils.getCertDirectory();
@@ -43,7 +44,7 @@ function handleServerCreation() {
                 };
                 saveConfig(config);
 
-                socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey } }));
+                socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey, keyRevocationList: config.keyRevocationList || [] } }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
             case 'REQUEST_FILES_LIST':
@@ -81,7 +82,7 @@ function handleServerCreation() {
                         const decryptedPrivateKey = await utils.decryptPrivateKey(config.keypair.privateKey, derivedKey, config.keypair.iv, config.keypair.authTag);
                         const signature = utils.signData(fileHash, decryptedPrivateKey);
 
-                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize, sourceEntity: config.userid, fileSignature: signature } }));
+                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize, sourceEntity: config.userId, fileSignature: signature } }));
 
                         setTimeout(() => {
                             socket.write(decryptedBuffer);
@@ -102,6 +103,61 @@ function handleServerCreation() {
                 {
                     socket.write(JSON.stringify({type: 'FILE_REQUEST_DECLINED', data: { fileName, peerName }}));
                 }
+                break;
+            case 'KEY_REVOCATION':
+                const migrationAnnouncement = json.data.migrationAnnouncement;
+                const peerPublicKey = config.trustedPeers[migrationAnnouncement.oldUserId]?.publicKey;
+
+                if (!peerPublicKey)
+                {
+                    // This peer doesn't have any info about the revoking peer. Will not propagate the message since it cannot verify.
+                    break;
+                }
+
+                const isVerified = utils.verifySignature({
+                    oldUserId: migrationAnnouncement.oldUserId,
+                    newUserId: migrationAnnouncement.newUserId,
+                    oldPublicKey: migrationAnnouncement.oldPublicKey,
+                    newPublicKey: migrationAnnouncement.newPublicKey,
+                    timestamp: migrationAnnouncement.timestamp
+                }, migrationAnnouncement.signature, peerPublicKey);
+                if (!isVerified)
+                {
+                    console.error('Signature verification failed for key revocation');
+                    break;
+                }
+
+                if (!config.trustedPeers[migrationAnnouncement.newUserId])
+                    config.trustedPeers[migrationAnnouncement.newUserId] = {};
+                config.trustedPeers[migrationAnnouncement.newUserId] = {
+                    name: migrationAnnouncement.newUserId,
+                    publicKey: migrationAnnouncement.newPublicKey,
+                    lastConnected: Date.now()
+                };
+                delete config.trustedPeers[migrationAnnouncement.oldUserId];
+                
+                if (!config.keyRevocationList[migrationAnnouncement.oldUserId])
+                    config.keyRevocationList[migrationAnnouncement.oldUserId] = [];
+                config.keyRevocationList[migrationAnnouncement.oldUserId].push({
+                    newUserId: migrationAnnouncement.newUserId,
+                    newPublicKey: migrationAnnouncement.newPublicKey,
+                    timestamp: Date.now()
+                });
+                saveConfig(config);
+
+                const peers = getPeers();
+                for (const peerName in config.trustedPeers)
+                {
+                    const peer = peers.get(peerName);
+                    if (peer && peer.name !== migrationAnnouncement.oldUserId && peer.name !== migrationAnnouncement.newUserId)
+                    {
+                        const _ = await sendMessageToPeer(peer.host, peer.port, 'KEY_REVOCATION', { migrationAnnouncement, ackNeeded: false });
+                    }
+                }
+                console.log(`Key revocation request received from ${migrationAnnouncement.oldUserId}. Successfully migrated to ${migrationAnnouncement.newUserId}`);
+                const clientPublicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
+                if (json.data && json.data.ackNeeded !== false)
+                    socket.write(JSON.stringify({ type: 'KEY_REVOCATION_ACK', data: { peerName: config.serviceName, publicKey: clientPublicKey } }));
                 break;
             default:
                 console.log('Unknown message type:', json.type);

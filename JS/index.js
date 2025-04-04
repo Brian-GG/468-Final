@@ -1,13 +1,12 @@
 const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert, getConfigDirectory, deriveKeyFromPassword, getFileVaultDirectory } = require('./utils');
-const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createServerCert, createClientCert, getLocalIPv4Address, createSha256Hash, placeRootCACert, getConfigDirectory, deriveKeyFromPassword, getFileVaultDirectory, decryptPrivateKey, signData } = require('./utils');
+const { handleServerCreation, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
 const { scanFileVault, writeToVault, decryptFile } = require('./storage');
 const secureContext = require('./secureContext');
 const fs = require('fs');
 const path = require('path');
-const peers = new Map();
 
 function initAgent()
 {
@@ -17,7 +16,7 @@ function initAgent()
     const serviceName = mdns.advertiseService(config.serviceName, config.port);
     
     console.log(`Finding peers for service type: ${config.serviceType}`);
-    const browser = mdns.findPeers(handlePeerDiscovered, handlePeerRemoved);
+    const browser = mdns.findPeers();
 
     files = scanFileVault();
 
@@ -32,48 +31,9 @@ function initAgent()
     return [serviceName, browser];
 }
 
-async function handlePeerDiscovered(service)
-{
-    const config = readConfig();
-    if (service.name === config.serviceName)
-        return;
-
-    try
-    {
-        const ip = await resolveHostnameToIP(service.host);
-        console.log(`Peer discovered: ${service.name} on ${ip}:${service.port}`);
-
-        if (!peers.has(service.name))
-        {
-            peers.set(service.name, {
-                name: service.name,
-                host: ip,
-                port: service.port,
-                service: service,
-                discoveredAt: Date.now(),
-                lastSeen: Date.now()
-            });
-        }
-
-        console.log(`Total peers: ${peers.size}`);
-    } 
-    catch (err)
-    {
-        console.error(`Failed to resolve hostname ${service.host}:`, err);
-    }
-}
-
-function handlePeerRemoved(service)
-{
-    if (peers.has(service.name))
-    {
-        console.log(`Peer disconnected: ${service.name}`);
-        peers.delete(service.name);
-    }
-}
-
 function listAvailablePeers()
 {
+    const peers = mdns.getPeers();
     if (peers.size === 0)
     {
         console.log('No peers available');
@@ -88,6 +48,7 @@ function listAvailablePeers()
 
 function listTrustedPeers()
 {
+    const peers = mdns.getPeers();
     const config = readConfig();
     if (!config.trustedPeers || Object.keys(config.trustedPeers).length === 0)
     {
@@ -103,7 +64,9 @@ function listTrustedPeers()
     });
 }
 
-async function connectToPeer(peerName) {
+async function connectToPeer(peerName)
+{
+    const peers = mdns.getPeers();
     let peer = peers.get(peerName);
     if (!peer)
     {
@@ -144,6 +107,7 @@ async function connectToPeer(peerName) {
 
 async function getPeerFiles(peerName)
 {
+    const peers = mdns.getPeers();
     const config = readConfig();
     let peer = peers.get(peerName);
     if (!peer)
@@ -190,6 +154,7 @@ async function getPeerFiles(peerName)
 
 async function requestFileFromPeer()
 {
+    const peers = mdns.getPeers();
     const config = readConfig();
     const peerName = await input({message: `Enter the peer name to request files from: `});
     const peer = peers.get(peerName);
@@ -299,6 +264,123 @@ async function decryptFileInVault()
     }
 }
 
+async function revokeKey()
+{
+    const peers = mdns.getPeers();
+    const config = readConfig();
+
+    if (!config.keyRevocationList)
+        config.keyRevocationList = {};
+
+    const confirmation = await confirm({ message: `Are you sure you want to revoke your key? This will invalidate all your trusted connects, and you will need to reauthenticate.` });
+    if (!confirmation)
+    {
+        console.log('Key revocation cancelled.');
+        return;
+    }
+
+    const { publicKey: newPublicKey, privateKey: newPrivateKey } = generateKeyPair();
+    let pubkeyHash = createSha256Hash(newPublicKey);
+    pubkeyHash = pubkeyHash.substring(0, 8);
+    config.userId = pubkeyHash;
+    const [derivedKey, salt] = await passwordPrompt(false);
+    secureContext.storeKey(derivedKey);
+
+    const encryptedResults = await encryptPrivateKey(newPrivateKey, derivedKey);
+    const newKeypair = {
+        publicKey: newPublicKey,
+        privateKey: encryptedResults.encryptedPrivateKey,
+        iv: encryptedResults.iv,
+        authTag: encryptedResults.authTag,
+        salt: salt
+    };
+
+    const configDir = getConfigDirectory();
+    const clientPublicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
+    
+    const migrationAnnouncement = {
+        oldUserId: `SecureShare-${config.userId}`,
+        newUserId: `SecureShare-${pubkeyHash}`,
+        oldPublicKey: config.keypair.publicKey,
+        newPublicKey: clientPublicKey,
+        timestamp: Date.now(),
+        signature: null
+    }
+
+    try
+    {
+        const decryptedPrivateKey = await decryptPrivateKey(config.keypair.privateKey, derivedKey, config.keypair.iv, config.keypair.authTag);
+        migrationAnnouncement.signature = signData(migrationAnnouncement, decryptedPrivateKey);
+    }
+    catch (err)
+    {
+        console.error('Error decrypting private key:', err);
+        console.error('Key revocation failed.');
+        return;
+    }
+
+    for (const peerName in config.trustedPeers)
+    {
+        const peer = config.trustedPeers[peerName];
+        if (peers.has(peer.name))
+        {
+            const response = await sendMessageToPeer(peer.host, peer.port, 'KEY_REVOCATION', { migrationAnnouncement, ackNeeded: true }); // get acknowledgement from first-hand connections
+            if (response && response.type == 'KEY_REVOCATION_ACK')
+            {
+                console.log(`Key revocation acknowledged by ${response.data.peerName}`);
+                config.trustedPeers[response.data.peerName] = {
+                    publicKey: response.data.publicKey,
+                    lastConnected: Date.now(),
+                }
+            }
+            else
+            {
+                console.log(`Key revocation failed for ${peer.name}`);
+            }
+        }
+    }
+
+    config.keypair = newKeypair;
+    config.salt = salt;
+    config.userId = pubkeyHash;
+    config.serviceName = `SecureShare-${pubkeyHash}`;
+    config.passwordHash = createSha256Hash(derivedKey);
+
+    saveConfig(config);
+    console.log(`Key revocation completed. You are now known as ${config.userId}. Goodbye!`);
+    process.exit(0);
+}
+
+function handleReceivedKRL(krl)
+{
+    const config = readConfig();
+    if (!config.keyRevocationList)
+    {
+        config.keyRevocationList = krl;
+        saveConfig(config);
+    }
+    else
+    {
+        const existingKRL = config.keyRevocationList;
+        const newKRL = krl;
+
+        newKRL.forEach((newEntry) => {
+            const existingEntry = existingKRL.find(entry => entry.oldUserId === newEntry.oldUserId);
+            if (!existingEntry)
+            {
+                existingKRL.push(newEntry);
+            }
+            else
+            {
+                // noop
+            }
+        });
+
+        config.keyRevocationList = existingKRL;
+        saveConfig(config);
+    }
+}
+
 async function handleCommands()
 {
     const availableCommands = ['list', 'connect', 'exit', 'friends', 'files', 'request', 'decrypt', 'help'];
@@ -339,6 +421,12 @@ async function handleCommands()
                             config.trustedPeers[peerName].publicKey = response.data.publicKey;
                             config.trustedPeers[peerName].lastConnected = Date.now();
                             saveConfig(config);
+
+                            if (response.data.keyRevocationList)
+                            {
+                                const krl = response.data.keyRevocationList;
+                                handleReceivedKRL(krl);
+                            }
                         }
                     } 
                     catch (error)
@@ -367,6 +455,9 @@ async function handleCommands()
                 break;
             case 'decrypt':
                 decryptFileInVault();
+                break;
+            case 'revoke_key':
+                revokeKey();
                 break;
             case 'help':
                 console.log(`Available commands: ${availableCommands.join(', ')}`);
@@ -417,7 +508,7 @@ async function validatePrerequisites()
         let pubkeyHash = createSha256Hash(publicKey);
         pubkeyHash = pubkeyHash.substring(0, 8);
 
-        config.userid = pubkeyHash;
+        config.userId = pubkeyHash;
         config.serviceName = `SecureShare-${pubkeyHash}`;
 
         console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!');
