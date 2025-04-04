@@ -27,12 +27,12 @@ function handleServerCreation() {
   const server = tls.createServer(options, async (socket) => {
     socket.on('data', async (data) => {
         let json = JSON.parse(data.toString());
-        const config = readConfig();
+        let config = readConfig();
+        const configDir = utils.getConfigDirectory();
 
         switch (json.type)
         {
             case 'PEER_CONNECTED':
-                const configDir = utils.getConfigDirectory();
                 let publicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
 
                 if (!config.trustedPeers[json.data.peerName])
@@ -114,13 +114,13 @@ function handleServerCreation() {
                     break;
                 }
 
-                const isVerified = utils.verifySignature({
+                const isVerified = utils.verifySignature(JSON.stringify({
                     oldUserId: migrationAnnouncement.oldUserId,
                     newUserId: migrationAnnouncement.newUserId,
                     oldPublicKey: migrationAnnouncement.oldPublicKey,
                     newPublicKey: migrationAnnouncement.newPublicKey,
                     timestamp: migrationAnnouncement.timestamp
-                }, migrationAnnouncement.signature, peerPublicKey);
+                }), migrationAnnouncement.signature, peerPublicKey);
                 if (!isVerified)
                 {
                     console.error('Signature verification failed for key revocation');
@@ -256,12 +256,28 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
                     socket.destroy();
                     reject(err);
                 }
+
+                if (messageType === 'KEY_REVOCATION' && !messageData.ackNeeded)
+                {
+                    clearTimeout(connectionTimeout);
+                    socket.end();
+                }
             });
-            socket.end();
         });
 
         socket.on('data', (data) => {
             responseData += data.toString();
+            try
+            {
+                const response = JSON.parse(responseData);
+                clearTimeout(connectionTimeout);
+                socket.end();
+                resolve(response);
+            }
+            catch (err)
+            {
+                // noop
+            }
         });
 
         socket.on('end', () => {

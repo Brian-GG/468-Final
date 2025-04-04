@@ -270,7 +270,7 @@ async function revokeKey()
     const config = readConfig();
 
     if (!config.keyRevocationList)
-        config.keyRevocationList = {};
+        config.keyRevocationList = [];
 
     const confirmation = await confirm({ message: `Are you sure you want to revoke your key? This will invalidate all your trusted connects, and you will need to reauthenticate.` });
     if (!confirmation)
@@ -279,6 +279,7 @@ async function revokeKey()
         return;
     }
 
+    let oldUserId = config.userId;
     const { publicKey: newPublicKey, privateKey: newPrivateKey } = generateKeyPair();
     let pubkeyHash = createSha256Hash(newPublicKey);
     pubkeyHash = pubkeyHash.substring(0, 8);
@@ -299,7 +300,7 @@ async function revokeKey()
     const clientPublicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
     
     const migrationAnnouncement = {
-        oldUserId: `SecureShare-${config.userId}`,
+        oldUserId: `SecureShare-${oldUserId}`,
         newUserId: `SecureShare-${pubkeyHash}`,
         oldPublicKey: config.keypair.publicKey,
         newPublicKey: clientPublicKey,
@@ -307,10 +308,18 @@ async function revokeKey()
         signature: null
     }
 
+    let dataToSign = JSON.stringify({
+        oldUserId: migrationAnnouncement.oldUserId,
+        newUserId: migrationAnnouncement.newUserId,
+        oldPublicKey: migrationAnnouncement.oldPublicKey,
+        newPublicKey: migrationAnnouncement.newPublicKey,
+        timestamp: migrationAnnouncement.timestamp
+    });
+
     try
     {
         const decryptedPrivateKey = await decryptPrivateKey(config.keypair.privateKey, derivedKey, config.keypair.iv, config.keypair.authTag);
-        migrationAnnouncement.signature = signData(migrationAnnouncement, decryptedPrivateKey);
+        migrationAnnouncement.signature = signData(dataToSign, decryptedPrivateKey);
     }
     catch (err)
     {
@@ -325,6 +334,13 @@ async function revokeKey()
         if (peers.has(peer.name))
         {
             const response = await sendMessageToPeer(peer.host, peer.port, 'KEY_REVOCATION', { migrationAnnouncement, ackNeeded: true }); // get acknowledgement from first-hand connections
+            // add a timeout to wait for response
+            if (!response)
+            {
+                console.log(`No response from ${peer.name}. Key revocation failed.`);
+                continue;
+            }
+
             if (response && response.type == 'KEY_REVOCATION_ACK')
             {
                 console.log(`Key revocation acknowledged by ${response.data.peerName}`);
@@ -383,7 +399,7 @@ function handleReceivedKRL(krl)
 
 async function handleCommands()
 {
-    const availableCommands = ['list', 'connect', 'exit', 'friends', 'files', 'request', 'decrypt', 'help'];
+    const availableCommands = ['list', 'connect', 'exit', 'friends', 'files', 'request', 'revoke_key', 'decrypt', 'help'];
     console.log(`P2P FILE SHARING APP\n\nAvailable commands: ${availableCommands.join(', ')}`);
     
     while (true)
@@ -417,6 +433,8 @@ async function handleCommands()
                         {
                             if (!config.trustedPeers[peerName])
                                 config.trustedPeers[peerName] = {};
+                            config.trustedPeers[peerName].host = peer.host;
+                            config.trustedPeers[peerName].port = peer.port;
                             config.trustedPeers[peerName].name = peerName;
                             config.trustedPeers[peerName].publicKey = response.data.publicKey;
                             config.trustedPeers[peerName].lastConnected = Date.now();
@@ -457,7 +475,7 @@ async function handleCommands()
                 decryptFileInVault();
                 break;
             case 'revoke_key':
-                revokeKey();
+                await revokeKey();
                 break;
             case 'help':
                 console.log(`Available commands: ${availableCommands.join(', ')}`);
