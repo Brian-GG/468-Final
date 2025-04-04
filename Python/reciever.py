@@ -45,7 +45,7 @@ class Listener(ServiceListener):
             # print(f"Service {name} added, service info:")
             # print(f"  Addresses: {', '.join(addresses)}\n")
 
-def joinNetwork():
+def joinNetwork(stop_event):
     zeroconf = Zeroconf()
     listener = Listener()
     services = list(ZeroconfServiceTypes.find(zc=zeroconf))
@@ -79,7 +79,7 @@ def joinNetwork():
                 stop_event.wait()
             except KeyboardInterrupt:
                 print("\nExiting...")
-                stop_event.set()
+            finally:
                 zeroconf.close()
     thread = threading.Thread(target=keep_running, daemon=True)
     thread.start()

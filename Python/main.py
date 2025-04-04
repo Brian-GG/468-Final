@@ -12,7 +12,7 @@ def main():
     password = login()
     create_data_files()
     stop_event = threading.Event()
-    zeroconf = joinNetwork()
+    zeroconf = joinNetwork(stop_event)
     start_tls_server_thread(password, stop_event)
     while True:
         

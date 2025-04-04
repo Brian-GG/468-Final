@@ -134,6 +134,6 @@ def message_peer(password):
         print(f"Error choosing peer: {e}")
     return None
 
-def start_tls_server_thread(password):
+def start_tls_server_thread(password, stop_event):
     server_thread = threading.Thread(target=start_tls_server, args=(password, stop_event), daemon=True)
     server_thread.start()
