@@ -257,6 +257,10 @@ CipherString = ${ciphers}
     },
 
     verifySignature: (data, signature, publicKey) => {
+        // Put public key back into PEM format
+        if (!publicKey.includes('BEGIN PUBLIC KEY'))
+            publicKey = `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
+        
         return crypto.verify(
             null, 
             Buffer.isBuffer(data) ? data : Buffer.from(data),
