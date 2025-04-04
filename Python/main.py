@@ -26,7 +26,7 @@ def main():
             "7. Quit\n")
         
 
-        action = input("\nEnter action: ")
+        action = input("Enter action: \n")
 
         if action == "1":
             print("one")

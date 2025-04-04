@@ -110,6 +110,7 @@ def discover_peers(zeroconf):
             public_key_hash = info.properties.get(b"public_key_hash")
             if public_key_hash:
                 public_key_hash = public_key_hash.decode()
+                print(f"logging hash: {public_key_hash}")
             peer_info = {
                 "name": service,
                 "addresses": addresses,

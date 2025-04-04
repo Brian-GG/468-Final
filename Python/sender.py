@@ -3,6 +3,7 @@ import socket
 import json
 import threading
 import os
+import hashlib
 from encryption import decrypt_file
 
 def create_tls_connection(peer, password):
@@ -68,9 +69,10 @@ def start_tls_server(password):
             try:
                 conn.do_handshake()
                 print(f"TLS handshake successful with {addr}")
-                print("Client certificate:")
-                print(conn.get_peer_certificate())
-                peers_hash = conn.get_peer_certificate().digest("sha256").decode("utf-8").replace(":", "").lower()
+                client_cert = conn.get_peer_certificate()
+                public_key = client_cert.get_pubkey()
+                public_key_asn1 = crypto.dump_publickey(crypto.FILETYPE_ASN1, public_key)
+                peers_hash = hashlib.sha256(public_key_asn1).hexdigest()
                 print(f"Peer's public key hash: {peers_hash}")
                 if peers_hash not in [peer["public_key_hash"] for peer in trusted_peers.values()]:
                     print("Untrusted peer! Closing connection.")
