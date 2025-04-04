@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { getFileVaultDirectory } = require("./utils");
 const { readConfig } = require('./state');
+const secureContext = require('./secureContext');
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
@@ -42,7 +43,9 @@ module.exports = {
                         try
                         {
                             const fileContent = fs.readFileSync(filePath);
-                            const { encryptedFile, iv, authTag } = encryptFile(fileContent, config.derivedKey);
+
+                            let derivedKey = secureContext.getKey();
+                            const { encryptedFile, iv, authTag } = encryptFile(fileContent, derivedKey);
                             
                             const encryptedFilePath = `${filePath}.enc`;
                             const metadata = JSON.stringify({ iv, authTag });
@@ -168,7 +171,8 @@ module.exports = {
             const config = readConfig();
             try
             {
-                const { encryptedFile, iv, authTag } = await encryptFile(fileContent, config.derivedKey);
+                let derivedKey = secureContext.getKey();
+                const { encryptedFile, iv, authTag } = await encryptFile(fileContent, derivedKey);
                 const encryptedFilePath = `${filePath}.enc`;
     
                 const metadata = JSON.stringify({ iv, authTag });
