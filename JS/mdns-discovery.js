@@ -1,25 +1,21 @@
 const { readConfig } = require('./state');
 const bonjour = require('bonjour')();
 
-const config = readConfig();
-
 let activeService = null;
 let activeBrowser = null;
 
-const PORT = config.port;
-const SERVICE_NAME = config.serviceName;
-const SERVICE_TYPE = config.serviceType;
-
 module.exports = {
-    advertiseService: (name = null, port = PORT) => {
+    advertiseService: (name = config.serviceName, port = config.port) => {
         if (activeService)
         {
             activeService.stop();
         }
 
-        const serviceName = name || SERVICE_NAME;
+        const config = readConfig();
 
-        activeService = bonjour.publish({ name: serviceName, type: SERVICE_TYPE, port });
+        const serviceName = name || config.serviceName;
+
+        activeService = bonjour.publish({ name: config.serviceName, type: config.serviceType, port });
 
         return serviceName;
     },
@@ -28,7 +24,9 @@ module.exports = {
         if (activeBrowser)
             activeBrowser.stop();
 
-        activeBrowser = bonjour.find({ type: SERVICE_TYPE });
+        const config = readConfig();
+
+        activeBrowser = bonjour.find({ type: config.serviceType });
 
         if (onPeerUp)
             activeBrowser.on('up', onPeerUp);

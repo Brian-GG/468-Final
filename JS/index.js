@@ -6,18 +6,16 @@ const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleR
 const { scanFileVault, writeToVault } = require('./storage');
 const secureContext = require('./secureContext');
 
-var PORT;
-var SERVICE_NAME;
-var SERVICE_TYPE;
-
 const peers = new Map();
 
 function initAgent()
 {
-    console.log(`Starting agent with service name: ${SERVICE_NAME} on port ${PORT}`);
-    const serviceName = mdns.advertiseService(SERVICE_NAME, PORT);
+    const config = readConfig();
+
+    console.log(`Starting agent with service name: ${config.serviceName} on port ${config.port}`);
+    const serviceName = mdns.advertiseService(config.serviceName, config.port);
     
-    console.log(`Finding peers for service type: ${SERVICE_TYPE}`);
+    console.log(`Finding peers for service type: ${config.serviceType}`);
     const browser = mdns.findPeers(handlePeerDiscovered, handlePeerRemoved);
 
     files = scanFileVault();
@@ -35,7 +33,8 @@ function initAgent()
 
 async function handlePeerDiscovered(service)
 {
-    if (service.name === SERVICE_NAME)
+    const config = readConfig();
+    if (service.name === config.serviceName)
         return;
 
     try
@@ -160,7 +159,7 @@ async function getPeerFiles(peerName)
 
     try
     {
-        const response = await sendMessageToPeer(peer.host, peer.port, 'REQUEST_FILES_LIST', { peerName: SERVICE_NAME });
+        const response = await sendMessageToPeer(peer.host, peer.port, 'REQUEST_FILES_LIST', { peerName: config.serviceName });
         if (response && response.type == 'FILES_LIST')
         {
             if (response.data.files.length === 0)
@@ -190,6 +189,7 @@ async function getPeerFiles(peerName)
 
 async function requestFileFromPeer()
 {
+    const config = readConfig();
     const peerName = await input({message: `Enter the peer name to request files from: `});
     const peer = peers.get(peerName);
     if (!peer)
@@ -223,7 +223,7 @@ async function requestFileFromPeer()
         }
         
         const file = files[fileToRequest];
-        const response = await handleRequestFileFromPeer(peer.host, peer.port, file.name, SERVICE_NAME);
+        const response = await handleRequestFileFromPeer(peer.host, peer.port, file.name, config.serviceName);
         if (response.type == 'FILE_RECEIVED')
         {
             await writeToVault(response.data.fileName, response.data.fileContent, true);
@@ -280,7 +280,7 @@ async function handleCommands()
 
                     try
                     {
-                        const _ = await sendMessageToPeer(peer.host, peer.port, 'PEER_CONNECTED', { peerName: SERVICE_NAME });
+                        const _ = await sendMessageToPeer(peer.host, peer.port, 'PEER_CONNECTED', { peerName: config.serviceName });
                         
                         if (config.trustedPeers[peerName])
                         {
@@ -335,8 +335,7 @@ async function validatePrerequisites()
         pubkeyHash = pubkeyHash.substring(0, 8);
 
         config.userid = pubkeyHash;
-        config.SERVER_NAME = `SecureShare-${pubkeyHash}`;
-        SERVICE_NAME = config.SERVER_NAME;
+        config.serviceName = `SecureShare-${pubkeyHash}`;
 
         console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!');
         // TODO: Password must be at least 12 characters long
@@ -373,10 +372,6 @@ async function validatePrerequisites()
         config.isFirstRun = false;
         saveConfig(config);
     }
-
-    PORT = config.port;
-    SERVICE_NAME = config.SERVICE_NAME;
-    SERVICE_TYPE = config.serviceType;
     
     let [serviceName, browser] = initAgent();
     handleServerCreation(); // Start the server
