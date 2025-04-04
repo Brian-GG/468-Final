@@ -1,4 +1,4 @@
-import ssl
+from OpenSSL import crypto, SSL
 import socket
 import json
 import io
@@ -7,80 +7,79 @@ from encryption import decrypt_file
 
 def create_tls_connection(peer, password):
     try:
-        
+        # Load cert and decrypted key from memory
         with open("file_vault/client.crt", "rb") as f:
-            certificate_data = f.read()
-                
+            client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
         decrypted_key_data = decrypt_file("file_vault/client.key.enc", password, 0)
+        client_key = crypto.load_privatekey(crypto.FILETYPE_PEM, decrypted_key_data)
 
-        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        context.load_cert_chain(
-            certfile=io.BytesIO(certificate_data), 
-            keyfile=io.BytesIO(decrypted_key_data)
-        )
-        context.verify_mode = ssl.CERT_REQUIRED
+        # Load CA cert
+        with open("file_vault/ca.crt", "rb") as f:
+            ca_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
 
-        with socket.create_connection(peer["address"], 3000) as sock:
-            with context.wrap_socket(sock, server_hostname=peer["name"]) as tls_sock:
-                print(f"Secure connection established with {peer['name']}")
-                return True
+        # Create SSL context
+        context = SSL.Context(SSL.TLS_CLIENT_METHOD)
+        context.use_certificate(client_cert)
+        context.use_privatekey(client_key)
+        context.load_verify_locations("file_vault/ca.crt")
+        context.set_verify(SSL.VERIFY_PEER, lambda conn, cert, errno, depth, ok: ok)
+
+        address = peer["address"][0], 3000
+        sock = socket.create_connection(address)
+        conn = SSL.Connection(context, sock)
+        conn.set_connect_state()
+        conn.do_handshake()
+
+        print(f"Secure connection established with {peer['name']}")
+        conn.send(b"Hello from client")
+        print(conn.recv(1024).decode())
+        conn.close()
+
     except Exception as e:
         print(f"TLS connection failed: {e}")
-        return False
 
 def start_tls_server(password):
     try:
-        # Decrypt the private key
+        with open("file_vault/server.crt", "rb") as f:
+            server_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
         decrypted_key_data = decrypt_file("file_vault/server.key.enc", password, 0)
+        server_key = crypto.load_privatekey(crypto.FILETYPE_PEM, decrypted_key_data)
 
-        # Create an SSL context for the server
-        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        context.load_cert_chain(
-            certfile="file_vault/server.crt",
-            keyfile=io.BytesIO(decrypted_key_data)
-        )
-        context.verify_mode = ssl.CERT_REQUIRED  # Require client certificate
+        context = SSL.Context(SSL.TLS_SERVER_METHOD)
+        context.use_certificate(server_cert)
+        context.use_privatekey(server_key)
+        context.load_verify_locations("file_vault/ca.crt")
+        context.set_verify(SSL.VERIFY_PEER | SSL.VERIFY_FAIL_IF_NO_PEER_CERT, lambda conn, cert, errno, depth, ok: ok)
 
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("0.0.0.0", 3000))
+        sock.listen(5)
 
-        context.load_verify_locations(cafile="file_vault/ca.crt")  # Load CA certificate for client verification
+        print("TLS server is listening on port 3000...")
 
-        # Create a server socket
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as server_socket:
-            server_socket.bind(("0.0.0.0", 3000))  # Listen on all interfaces, port 3000
-            server_socket.listen(5)  # Allow up to 5 pending connections
-            print("TLS server is listening on port 3000...")
+        while True:
+            client_sock, addr = sock.accept()
+            conn = SSL.Connection(context, client_sock)
+            conn.set_accept_state()
+            try:
+                conn.do_handshake()
+                print(f"TLS handshake successful with {addr}")
+                print("Client certificate:")
+                print(conn.get_peer_certificate())
 
-            while True:
-                # Accept an incoming connection
-                client_socket, client_address = server_socket.accept()
-                print(f"Connection from {client_address}")
+                data = conn.recv(1024).decode("utf-8")
+                print(f"Received: {data}")
+                conn.send(b"Hello, secure client!")
+                conn.shutdown()
+                conn.close()
 
-                # Wrap the socket with TLS
-                try:
-                    with context.wrap_socket(client_socket, server_side=True) as tls_socket:
-                        print("TLS handshake successful.")
-                        print(f"Client certificate: {tls_socket.getpeercert()}")
+            except SSL.Error as e:
+                print(f"TLS handshake failed: {e}")
+                conn.close()
 
-                        # Handle the secure connection
-                        handle_client_connection(tls_socket)
-                except ssl.SSLError as e:
-                    print(f"TLS handshake failed: {e}")
     except Exception as e:
         print(f"Error starting TLS server: {e}")
 
-def handle_client_connection(tls_socket):
-    try:
-        # Receive data from the client
-        data = tls_socket.recv(1024).decode("utf-8")
-        print(f"Received: {data}")
-
-        # Send a response to the client
-        response = "Hello, secure client!"
-        tls_socket.send(response.encode("utf-8"))
-    except Exception as e:
-        print(f"Error handling client connection: {e}")
-    finally:
-        tls_socket.close()
 
 def add_trusted_peer(peer):
     try:
