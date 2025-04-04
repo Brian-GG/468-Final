@@ -42,8 +42,16 @@ def create_data_files():
         with open(files_db, "w") as f:
             json.dump({}, f)
 
-def import_files(password):
-    input_file = input("Enter original file path: \n")
+    peer_file_db = "peerfiles.json"
+    if not os.path.exists(peer_file_db):
+        with open(peer_file_db, "w") as f:
+            json.dump({}, f)
+
+def import_files(password, need_path, input_file):
+    if need_path == 1:
+        input_file = input("Enter original file path: \n")
+    else:
+        input_file = input_file
     dest_folder = Path("file_vault")
     original_path = Path(input_file)
 

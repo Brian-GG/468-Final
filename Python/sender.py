@@ -1,24 +1,24 @@
 from OpenSSL import crypto, SSL
+from cryptography.hazmat.primitives import serialization
 import socket
 import json
 import threading
 import os
 import hashlib
-from encryption import decrypt_file
+from encryption import *
+from filemanager import *
 
-def create_tls_connection(peer, password):
+def create_tls_connection(peer, password, message):
     try:
-        # Load cert and decrypted key from memory
+
         with open("file_vault/client.crt", "rb") as f:
             client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
         decrypted_key_data = decrypt_file("file_vault/client.key.enc", password, 0)
         client_key = crypto.load_privatekey(crypto.FILETYPE_PEM, decrypted_key_data)
 
-        # Load CA cert
         with open("file_vault/ca.crt", "rb") as f:
             ca_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
 
-        # Create SSL context
         context = SSL.Context(SSL.TLS_CLIENT_METHOD)
         context.use_certificate(client_cert)
         context.use_privatekey(client_key)
@@ -31,10 +31,9 @@ def create_tls_connection(peer, password):
         conn.set_connect_state()
         conn.do_handshake()
 
-        peer_name = peer.get("name", "Unknown Peer")
-        print(f"Secure connection established with {peer_name}")
-        conn.send(b"Hello from client")
-        print(conn.recv(1024).decode())
+        conn.send(json.dumps(message).encode())
+        response = conn.recv(4096).decode()
+        handle_response(response, message, password)
         conn.close()
 
     except Exception as e:
@@ -80,11 +79,7 @@ def start_tls_server(password, stop_event):
                     conn.close()
                     continue
 
-                data = conn.recv(1024).decode("utf-8")
-                print(f"Received: {data}")
-                conn.send(b"Hello, secure client!")
-                conn.shutdown()
-                conn.close()
+                handle_client_connection(conn, password)
 
             except SSL.Error as e:
                 print(f"TLS handshake failed: {e}")
@@ -125,9 +120,24 @@ def message_peer(password):
             choice = int(input("Choose a peer: ")) - 1
             if 0 <= choice < len(peer_list):
                 selected_peer = trusted_peers[peer_list[choice]]
-                create_tls_connection(selected_peer, password)
+                print("\nAvailable operations:")
+                print("1. LIST_FILES")
+                print("2. SEND_FILE")
+                print("3. REQUEST_FILE")
+                operation = int(input("Choose an operation: "))
+
+                if operation == 1:
+                    create_tls_connection(selected_peer, password, {"type": "LIST_FILES", "data": {}})
+                elif operation == 2:
+                    filename = input("Enter the filename to send: ")
+                    send_file(selected_peer, password, filename)
+                elif operation == 3:
+                    filename = input("Enter the filename to request: ")
+                    request_file(selected_peer, password, filename)
+                else:
+                    print("Invalid operation selected.")
             else:
-                print("Invalid choice.")
+                print("Invalid peer selection.")
         else:
             print("No peers available.")
     except Exception as e:
@@ -137,3 +147,179 @@ def message_peer(password):
 def start_tls_server_thread(password, stop_event):
     server_thread = threading.Thread(target=start_tls_server, args=(password, stop_event), daemon=True)
     server_thread.start()
+
+def list_available_files():
+    if os.path.exists("filedb.json"):
+        with open("filedb.json", "r") as f:
+            files = json.load(f)
+            return list(files.keys())
+    return []
+
+def request_file(peer, password, filename):
+    message = {"type": "REQUEST_FILE", "data": {"filename": filename}}
+    create_tls_connection(peer, password, message)
+
+def send_file(peer, password, filename):
+    if os.path.exists(filename):
+        with open(filename, "rb") as f:
+            file_data = f.read()
+        file_hash = hashlib.sha256(file_data).hexdigest()
+    
+        if os.path.exists("filedb.json"):
+            with open("filedb.json", "r") as f:
+                filedb = json.load(f)
+                if filename in filedb:
+                    file_signature = filedb[filename]["signature"]
+                else:
+                    print("File not found in database")
+                    return
+        else:
+            print("File database not found")
+            return
+
+        message = {"type": "SEND_FILE", "data" : {"filename": filename, "file_data": file_data.hex(), "hash": file_hash, "signature": file_signature}}
+        create_tls_connection(peer, password, message)
+
+    else:
+        print("File not found")
+
+def handle_client_connection(conn, password):
+    try:
+        data = conn.recv(4096).decode()
+        request = json.loads(data)
+
+        if type == "LIST_FILES":
+            response = list_available_files()
+            conn.send(json.dumps(response).encode())
+
+        elif type == "REQUEST_FILE":
+            filename = request.get("filename")
+            if filename in list_available_files():
+                consent = input(f"file {filename} requested. Do you want to send it? (yes/no): ")
+                if consent.lower() == "yes":
+                    with open(filename, "rb") as f:
+                        file_data = f.read()
+                    file_hash = hashlib.sha256(file_data).hexdigest()
+
+                    # Retrieve the file's signature from filedb.json
+                    if os.path.exists("filedb.json"):
+                        with open("filedb.json", "r") as f:
+                            filedb = json.load(f)
+                        if filename in filedb:
+                            file_signature = filedb[filename]["signature"]
+                        else:
+                            conn.send(b"File not found in database.")
+                            return
+                    else:
+                        conn.send(b"File database not found.")
+                        return
+
+                    # Send the file data, hash, and signature
+                    response = {
+                        "filename": filename,
+                        "file_data": file_data.hex(),
+                        "hash": file_hash,
+                        "signature": file_signature,
+                    }
+                    conn.send(json.dumps(response).encode())
+                else:
+                    conn.send(b"File transfer declined.")
+        
+        elif type == "SEND_FILE":
+            filename = request.get("filename")
+            consent = input(f"Accept file {filename}? (yes/no): ")
+            if consent.lower() == "yes":
+                conn.send(b"File transfer accepted.")
+                file_data = bytes.fromhex(request.get("file_data"))
+                file_hash = request.get("hash")
+                file_signature = base64.b64decode(request.get("signature"))
+                if hashlib.sha256(file_data).hexdigest() == file_hash:
+                    public_key_pem = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
+                    public_key = serialization.load_pem_public_key(public_key_pem)
+                    try:
+                        public_key.verify(
+                            file_signature,
+                            file_hash.encode(),
+                            padding.PKCS1v15(),
+                            hashes.SHA256(),
+                        )
+                        with open(filename, "wb") as f:
+                            f.write(file_data)
+                        import_files(password, 0, filename)
+                        conn.send(b"File received successfully.")
+                    except Exception as e:
+                        print(f"Signature verification failed: {e}")
+                        conn.send(b"Integrity check failed. Transfer failed.")
+                else:
+                    conn.send(b"Integrity check failed. Transfer failed.")
+            else:
+                conn.send(b"File transfer declined.")
+
+        conn.close()
+    except Exception as e:
+        print(f"Error handling client connection: {e}")
+        conn.close()
+
+def handle_response(response, message, password):
+    try:
+        response_data = json.loads(response)
+
+        if message["type"] == "LIST_FILES":
+            print("Available files:")
+            for file in response_data:
+                print(f"- {file}")
+            peer_name = message.get("peer_name", "Unknown Peer")
+            if os.path.exists("peerfiles.json"):
+                with open("peerfiles.json", "r") as f:
+                    peer_files = json.load(f)
+            else:
+                peer_files = {}
+
+            peer_files[peer_name] = response_data
+
+            with open("peerfiles.json", "w") as f:
+                json.dump(peer_files, f, indent=4)
+            print(f"File list from {peer_name} saved to peerfiles.json.")
+
+        elif message["type"] == "REQUEST_FILE":
+            if "file_data" in response_data:
+                filename = response_data["filename"]
+                file_data = bytes.fromhex(response_data["file_data"])
+                file_hash = response_data["hash"]
+                file_signature = base64.b64decode(response_data["signature"])
+
+                if hashlib.sha256(file_data).hexdigest() == file_hash:
+                    print(f"File '{filename}' passed integrity check.")
+
+                    with open("file_vault/ca.crt", "rb") as f:
+                        ca_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+                    public_key = ca_cert.get_pubkey().to_cryptography_key()
+                    try:
+                        public_key.verify(
+                            file_signature,
+                            file_hash.encode(),
+                            padding.PKCS1v15(),
+                            hashes.SHA256(),
+                        )
+                        with open(filename, "wb") as f:
+                            f.write(file_data)
+                        import_files(password, 0, filename)
+                        print(f"File '{filename}' received and verified successfully.")
+                    except Exception as e:
+                        print(f"Signature verification failed: {e}")
+                else:
+                    print("File hash mismatch. Transfer failed.")
+            else:
+                print("File transfer declined or failed.")
+
+        elif message["type"] == "SEND_FILE":
+            print(response)
+
+        else:
+            print(f"Unexpected response: {response}")
+
+    except json.JSONDecodeError:
+        print(f"Invalid response received: {response}")

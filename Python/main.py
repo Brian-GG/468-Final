@@ -36,7 +36,7 @@ def main():
         elif action == "3":
             print("two")
         elif action == "4":
-            import_files(password)
+            import_files(password, 1, None)
         elif action == "5":
             export_file(password)
         elif action == "6":

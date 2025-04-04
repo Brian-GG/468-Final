@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import ssl
+import hashlib
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -59,11 +60,9 @@ def decrypt_file(encrypted_file_path, password, file_return):
     return decrypted_file_path
 
 def hash_file(file_path):
-    hasher = hashes.Hash(hashes.SHA256())
     with open(file_path, "rb") as f:
-        while chunk := f.read(8192):
-            hasher.update(chunk)
-    return base64.urlsafe_b64encode(hasher.finalize()).decode('utf-8')
+        data = f.read()
+    return hashlib.sha256(data).hexdigest()
 
 def sign_file_hash(hash, password):
     with open("file_vault/client.key.enc", "rb") as f:
