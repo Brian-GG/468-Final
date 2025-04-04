@@ -30,7 +30,9 @@ function handleServerCreation() {
         switch (json.type)
         {
             case 'PEER_CONNECTED':
-                socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey: config.keypair.publicKey } }));
+                const configDir = utils.getConfigDirectory();
+                let publicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
+                socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey } }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
             case 'REQUEST_FILES_LIST':

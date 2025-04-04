@@ -1,11 +1,12 @@
 const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert } = require('./utils');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert, getConfigDirectory } = require('./utils');
 const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
 const { scanFileVault, writeToVault } = require('./storage');
 const secureContext = require('./secureContext');
-
+const fs = require('fs');
+const path = require('path');
 const peers = new Map();
 
 function initAgent()
@@ -280,12 +281,18 @@ async function handleCommands()
 
                     try
                     {
-                        const _ = await sendMessageToPeer(peer.host, peer.port, 'PEER_CONNECTED', { peerName: config.serviceName });
+                        const configDir = getConfigDirectory();
+                        let publicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
+                        const response = await sendMessageToPeer(peer.host, peer.port, 'PEER_CONNECTED', { peerName: config.serviceName, publicKey });
                         
-                        if (config.trustedPeers[peerName])
+                        if (response && response.type == 'WELCOME')
                         {
-                            config.trustedPeers[peerName].lastConnected = Date.now();
-                            saveConfig(config);
+                            if (config.trustedPeers[peerName])
+                            {
+                                config.trustedPeers[peerName].publicKey = response.data.publicKey;
+                                config.trustedPeers[peerName].lastConnected = Date.now();
+                                saveConfig(config);
+                            }
                         }
                     } 
                     catch (error)

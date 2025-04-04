@@ -35,6 +35,13 @@ module.exports = {
             }
         });
 
+        const lines = publicKey.split('\n');
+        const keyLines = lines.filter(line => !line.startsWith('-----'));
+        const publicKeyStripped = keyLines.join('');
+
+        const configDir = module.exports.getConfigDirectory();
+        fs.writeFileSync(path.join(configDir, 'client_public.pem'), publicKeyStripped);
+
         return { publicKey, privateKey };
     },
 
