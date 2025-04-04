@@ -1,7 +1,7 @@
 const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert, getConfigDirectory } = require('./utils');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert, getConfigDirectory, deriveKeyFromPassword } = require('./utils');
 const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
 const { scanFileVault, writeToVault } = require('./storage');
 const secureContext = require('./secureContext');
@@ -329,6 +329,33 @@ async function handleCommands()
     }
 }
 
+async function passwordPrompt(firstRun=false)
+{
+    const config = readConfig();
+
+    const userPassphrase = await password({ message: 'Enter password: ' });
+    if (firstRun)
+    {
+        const confirmPassphrase = await password({ message: 'Confirm password: ' });
+        if (userPassphrase !== confirmPassphrase)
+        {
+            console.log('Passwords do not match. Exiting...');
+            process.exit(1);
+        }
+    }
+
+    let salt = null;
+    if (!config.salt)
+        salt = generateSalt();
+    else
+    {
+        salt = config.salt;
+    }
+    let derivedKey = await deriveKeyFromPassword(userPassphrase, salt)
+
+    return [derivedKey, salt];
+}
+
 async function validatePrerequisites()
 {
     const config = readConfig();
@@ -346,19 +373,12 @@ async function validatePrerequisites()
 
         console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!');
         // TODO: Password must be at least 12 characters long
-        const userPassphrase = await password({ message: 'Enter password: ' });
-        const userPassphraseConfirm = await password({ message: 'Confirm password: ' });
+        const [derivedKey, salt] = await passwordPrompt(true);
+        secureContext.storeKey(derivedKey);
+        let pwHash = createSha256Hash(derivedKey);
+        config.passwordHash = pwHash;
 
-        if (userPassphrase !== userPassphraseConfirm)
-        {
-            console.log('Passwords do not match. Exiting...');
-            process.exit(1);
-        }
-
-        const salt = generateSalt();
-        const encryptedResults = await encryptPrivateKey(privateKey, userPassphraseConfirm, salt);
-
-        secureContext.storeKey(encryptedResults.derivedKey);
+        const encryptedResults = await encryptPrivateKey(privateKey, derivedKey);
         
         config.keypair = {
             publicKey: publicKey,
@@ -379,7 +399,19 @@ async function validatePrerequisites()
         config.isFirstRun = false;
         saveConfig(config);
     }
-    
+    else
+    {
+        console.log(`Please enter the passphrase to unlock your file vault. This is the same passphrase you used when you first started the application.`);
+        let [derivedKey, _] = await passwordPrompt();
+        let pwHash = createSha256Hash(derivedKey);
+        if (pwHash !== config.passwordHash)
+        {
+            console.log('Incorrect passphrase. Exiting...');
+            process.exit(1);
+        }
+        secureContext.storeKey(derivedKey); 
+    }
+
     let [serviceName, browser] = initAgent();
     handleServerCreation(); // Start the server
     await handleCommands();

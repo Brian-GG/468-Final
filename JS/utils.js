@@ -45,8 +45,7 @@ module.exports = {
         return { publicKey, privateKey };
     },
 
-    encryptPrivateKey: async (privateKey, password, salt) => {
-        const derivedKey = await argon2.hash(password+salt, ARGON2_OPTIONS);
+    encryptPrivateKey: async (privateKey, derivedKey) => {
         const iv = crypto.randomBytes(IV_LENGTH);
         const cipher = crypto.createCipheriv(ALGORITHM, derivedKey.substring(0, KEY_LENGTH), iv);
         let encrypted = cipher.update(privateKey, 'utf8', 'hex');
@@ -54,7 +53,7 @@ module.exports = {
 
         const authTag = cipher.getAuthTag();
 
-        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex'), derivedKey };
+        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex') };
     },
 
     decryptPrivateKey: async (encryptedPrivateKey, derivedKey, iv, authTag) => {
@@ -264,5 +263,10 @@ CipherString = ${ciphers}
             publicKey, 
             Buffer.from(signature, 'hex')
         );
+    },
+
+    deriveKeyFromPassword: async (password, salt) => {
+        const derivedKey = await argon2.hash(password, { ...ARGON2_OPTIONS, salt: Buffer.from(salt, 'hex') });
+        return derivedKey;
     }
 }

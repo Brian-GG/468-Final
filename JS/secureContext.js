@@ -15,14 +15,13 @@ function createSecureContext()
 
     return {
         storeKey: (key) => {
-            const keyBuffer = Buffer.from(key, 'hex');
-            context[keySymbol] = keyBuffer;
+            context[keySymbol] = key;
 
             if (!process._secureContextCleaned)
             {
                 process.on('exit', () => {
                     if (context[keySymbol])
-                        context[keySymbol].fill(0);
+                        delete context[keySymbol];
                 });
             }
             process._secureContextCleaned = true;
@@ -33,7 +32,6 @@ function createSecureContext()
         clear: () => {
             if (context[keySymbol])
             {
-                context[keySymbol].fill(0);
                 delete context[keySymbol];
             }
         }
