@@ -40,10 +40,10 @@ def login():
         else:
             print("Incorrect Password!")
             tries+=1
-    if tries == 2:
-        print("Too many failed password attmpts! Exiting...")
-        time.sleep(1)
-        exit()
+
+    print("Too many failed password attmpts! Exiting...")
+    time.sleep(1)
+    exit()
 
 
 

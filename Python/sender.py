@@ -99,6 +99,7 @@ def add_trusted_peer(peer):
             trusted_peers = {}
 
         trusted_peers[peer["name"]] = {
+            "name": peer["name"],
             "address": peer["addresses"],
             "public_key_hash": peer["public_key_hash"],
         }
