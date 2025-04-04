@@ -248,10 +248,10 @@ def handle_client_connection(conn, password):
                             file_signature = filedb[filename]["signature"]
                             uid = filedb[filename]["uid"]
                         else:
-                            conn.send(b"File not found in database.")
+                            conn.send(json.dumps({"message": "File not found in database."}).encode())
                             return
                     else:
-                        conn.send(b"File database not found.")
+                        conn.send(json.dumps({"message": "File database not found."}).encode())
                         return
 
                     # Send the file data, hash, and signature
@@ -264,13 +264,13 @@ def handle_client_connection(conn, password):
                     }
                     conn.send(json.dumps(response).encode())
                 else:
-                    conn.send(b"File transfer declined.")
+                    conn.send(json.dumps({"message": "File transfer declined."}).encode())
         
         elif type == "SEND_FILE":
             filename = request.get("data", {}).get("filename")
             consent = input(f"Accept file {filename}? (yes/no): ")
             if consent.lower() == "yes":
-                conn.send(b"File transfer accepted.")
+                conn.send(json.dumps({"message": "File transfer accepted."}).encode())
                 file_data = bytes.fromhex(request.get("data", {}).get("hash"))
                 file_hash = request.get("data", {}).get("hash")
                 file_signature = base64.b64decode(request.get("data", {}).get("signature"))
@@ -313,11 +313,11 @@ def handle_client_connection(conn, password):
                         print(f"File '{filename}' saved, encrypted, and added to filedb.json.")
                     except Exception as e:
                         print(f"Signature verification failed: {e}")
-                        conn.send(b"Integrity check failed. Transfer failed.")
+                        conn.send(json.dumps({"message": "Signature verification failed. Transfer failed."}).encode())
                 else:
-                    conn.send(b"Integrity check failed. Transfer failed.")
+                    conn.send(json.dumps({"message": "Integrity check failed. Transfer failed."}).encode())
             else:
-                conn.send(b"File transfer declined.")
+                conn.send(json.dumps({"message": "File transfer declined."}).encode())
 
         conn.close()
     except Exception as e:
