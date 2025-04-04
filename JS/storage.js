@@ -245,11 +245,12 @@ module.exports = {
         return true;
     },
 
-    findAlternativeFileSources: (fileHash) => {
+    findAlternativeFileSources: async (fileHash) => {
         const config = readConfig();
-
         if (!config.fileMetadata || !config.fileMetadata[fileHash])
+        {
             return null;
+        }
 
         const fileMetadata = config.fileMetadata[fileHash];
         const alternatives = [];
@@ -258,23 +259,46 @@ module.exports = {
 
         if (config.trustedPeers)
         {
-            for (const peerName in config.trustedPeers)
+            const peerNames = Object.keys(config.trustedPeers);
+            for (let i = 0; i < peerNames.length; i++)
             {
+                const peerName = peerNames[i];
                 const peer = config.trustedPeers[peerName];
                 if (peer.name == `SecureShare-${fileMetadata.sourceEntity}`)
-                    continue;
-
-                if (peer.fileMetadata && peer.fileMetadata[fileHash])
                 {
-                    const isOnline = activePeers.has(peer.name) ? true : false;
-                    alternatives.push({
-                        name: peerName,
-                        isOnline,
-                        host: peer.host,
-                        port: peer.port,
-                        lastSeen: peer.lastConnected || 0,
-                        ...peer.fileMetadata[fileHash]
-                    });
+                    continue;
+                }
+
+                const isOnline = activePeers.has(peer.name) ? true : false;
+                if (!isOnline)
+                {
+                    continue;
+                }
+
+                const { sendMessageToPeer } = require('./connection');
+
+                try
+                {
+                    const response = await sendMessageToPeer(peer.host, peer.port, 'REQUEST_FILES_LIST', { peerName: config.serviceName });
+
+                    if (response && response.data?.files)
+                    {
+                        const matchingFile = response.data.files.find(f => f.hash == fileHash);
+                        if (matchingFile)
+                        {
+                            alternatives.push({
+                                peerName: peer.name,
+                                fileName: fileMetadata.name,
+                                size: fileMetadata.size,
+                                host: peer.host,
+                                port: peer.port
+                            });
+                        }
+                    }
+                }
+                catch (err)
+                {
+                    console.error(`Error requesting file list from peer ${peer.name}:`, err);
                 }
             }
         }

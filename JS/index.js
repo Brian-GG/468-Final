@@ -3,7 +3,7 @@ const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
 const { generateKeyPair, generateSalt, encryptPrivateKey, createServerCert, createClientCert, getLocalIPv4Address, createSha256Hash, placeRootCACert, getConfigDirectory, deriveKeyFromPassword, getFileVaultDirectory, decryptPrivateKey, signData } = require('./utils');
 const { handleServerCreation, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
-const { scanFileVault, writeToVault, decryptFile } = require('./storage');
+const { scanFileVault, writeToVault, decryptFile, findAlternativeFileSources } = require('./storage');
 const secureContext = require('./secureContext');
 const fs = require('fs');
 const path = require('path');
@@ -127,14 +127,14 @@ async function getPeerFiles(peerName)
         const response = await sendMessageToPeer(peer.host, peer.port, 'REQUEST_FILES_LIST', { peerName: config.serviceName });
         if (response && response.type == 'FILES_LIST')
         {
-            if (response.data.files.length === 0)
+            if (Object.keys(response.data.files).length === 0)
             {
                 console.log(`No files found on peer ${peerName}`);
                 return;
             }
 
             response.data.files.forEach((file, idx) => {
-                console.log(`${idx + 1}. ${file.name} (${file.size} bytes)`);
+                console.log(`${idx + 1}. ${file.name} (${file.size} bytes) - Hash: ${file.hash}`);
             });
 
             return response.data.files;
@@ -189,26 +189,78 @@ async function requestFileFromPeer()
         }
         
         const file = files[fileToRequest];
-        const response = await handleRequestFileFromPeer(peer.host, peer.port, file.name, config.serviceName);
-        if (response.type == 'FILE_RECEIVED')
+
+        try
         {
-            await writeToVault(response.data.fileName, response.data.fileContent, true);
-            console.log(`\nFile ${response.data.fileName} received from ${peerName} and saved to vault.`);
-            return;
+            const response = await handleRequestFileFromPeer(peer.host, peer.port, file.name, config.serviceName);
+            if (response.type == 'FILE_RECEIVED')
+            {
+                await writeToVault(response.data.fileName, response.data.fileContent, true);
+                console.log(`\nFile ${response.data.fileName} received from ${peerName} and saved to vault.`);
+                return;
+            }
+            else if (response.type == 'FILE_REQUEST_DECLINED')
+            {
+                console.error(`File request for ${file.name} declined by ${peerName}`);
+                return;
+            }
+            else if (response.type == 'FILE_NOT_FOUND')
+            {
+                console.error(`File ${file.name} not found on peer ${peerName}`);
+                return;
+            }
+            else
+            {
+                console.error(`Unknown response type: ${response.type}`);
+                return;
+            }
         }
-        else if (response.type == 'FILE_REQUEST_DECLINED')
+        catch (error)
         {
-            console.error(`File request for ${file.name} declined by ${peerName}`);
-            return;
-        }
-        else if (response.type == 'FILE_NOT_FOUND')
-        {
-            console.error(`File ${file.name} not found on peer ${peerName}`);
-            return;
-        }
-        else
-        {
-            console.error(`Unknown response type: ${response.type}`);
+            console.error(`Error requesting file from peer ${peerName}. Searching for alternative sources...`);
+            const alternativePeers = await findAlternativeFileSources(file.hash);
+            if (alternativePeers == null || alternativePeers.length === 0)
+            {
+                console.error(`No alternative sources found for file ${file.name}`);
+                return;
+            }
+
+            console.log(`Found alternative sources for file ${file.name}:`);
+            alternativePeers.forEach((peer, idx) => {
+                console.log(`${idx + 1}. ${peer.peerName} (${peer.host}:${peer.port})`);
+            });
+            const alternativePeerIndex = await input({message: `Enter the index of the peer to request from: `});
+            const alternativePeer = alternativePeers[parseInt(alternativePeerIndex) - 1];
+            if (!alternativePeer)
+            {
+                console.error(`Invalid peer index`);
+                return;
+            }
+
+            console.log(`Requesting file ${file.name} from alternative peer ${alternativePeer.peerName}...`);
+            
+            try
+            {
+                const response = await handleRequestFileFromPeer(alternativePeer.host, alternativePeer.port, file.name, config.serviceName);
+                if (response.type == 'FILE_RECEIVED')
+                {
+                    await writeToVault(response.data.fileName, response.data.fileContent, true);
+                    console.log(`\nFile ${response.data.fileName} received from ${alternativePeer.peerName} and saved to vault.`);
+                }
+                else if (response.type == 'FILE_REQUEST_DECLINED')
+                {
+                    console.error(`File request for ${file.name} declined by ${alternativePeer.peerName}`);
+                }
+                else if (response.type == 'FILE_NOT_FOUND')
+                {
+                    console.error(`File ${file.name} not found on peer ${alternativePeer.peerName}`);
+                }
+            }
+            catch (error)
+            {
+                console.error(`Error requesting file from alternative peer ${alternativePeer.peerName}:`, error);
+            }
+
             return;
         }
     }
