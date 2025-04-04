@@ -117,7 +117,7 @@ def discover_peers(zeroconf):
                 "public_key_hash": public_key_hash,
             }
             
-            if peer_info["name"] in trusted_peers:
+            if peer_info["addresses"][0] in trusted_peers:
                 print(f"Peer {peer_info['name']} is already trusted.")
                 continue
             discovered_peers.append(peer_info)

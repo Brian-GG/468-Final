@@ -73,7 +73,7 @@ def start_tls_server(password):
                 public_key = client_cert.get_pubkey()
                 public_key_asn1 = crypto.dump_publickey(crypto.FILETYPE_ASN1, public_key)
                 peers_hash = hashlib.sha256(public_key_asn1).hexdigest()
-                print(f"Peer's public key hash: {peers_hash}")
+                print(f"Peer's public key bruh: {peers_hash}")
                 if peers_hash not in [peer["public_key_hash"] for peer in trusted_peers.values()]:
                     print("Untrusted peer! Closing connection.")
                     conn.close()
