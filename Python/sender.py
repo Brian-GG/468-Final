@@ -78,7 +78,7 @@ def start_tls_server(password, stop_event):
                     print("Untrusted peer! Closing connection.")
                     conn.close()
                     continue
-
+                print("handling connection")
                 handle_client_connection(conn, password)
 
             except SSL.Error as e:
@@ -222,7 +222,9 @@ def handle_client_connection(conn, password):
     try:
         data = conn.recv(4096).decode()
         request = json.loads(data)
-
+        type = request.get("type")
+        print(type)
+        
         if type == "LIST_FILES":
             response = list_available_files()
             conn.send(json.dumps(response).encode())
