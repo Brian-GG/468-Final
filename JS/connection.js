@@ -205,6 +205,14 @@ async function handleClientConnection(host, port, timeout=10000) {
 
         const socket = tls.connect(options, () => {
             clearTimeout(connectionTimeout);
+
+            let safeToProceed = handleKRLValidation(peerName);
+            if (!safeToProceed)
+            {
+                socket.end();
+                return;
+            }
+
             resolve(socket);
         });
 
@@ -243,6 +251,14 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
 
         socket.on('connect', () => {
             clearTimeout(connectionTimeout);
+
+            let safeToProceed = handleKRLValidation(messageData.peerName);
+            if (!safeToProceed)
+            {
+                socket.end();
+                return;
+            }
+
             const message = JSON.stringify({
                 type: messageType,
                 data: messageData
@@ -352,7 +368,14 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
 
         const socket = tls.connect(options, () => {
             clearTimeout(connectionTimeout);
-            
+
+            let safeToProceed = handleKRLValidation(peerName);
+            if (!safeToProceed)
+            {
+                socket.end();
+                return;
+            }
+
             const request = JSON.stringify({
                 type: 'REQUEST_FILE',
                 data: { fileName, peerName }
@@ -515,6 +538,27 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
             reject(err);
         });
     });
+}
+
+function handleKRLValidation(peerName)
+{
+    const config = readConfig();
+    const peers = getPeers();
+
+    if (!config.keyRevocationList || !Array.isArray(config.keyRevocationList))
+        return true;
+
+    let peer = peers.get(peerName);
+    const isRevoked = config.keyRevocationList.some(entry => entry.oldUserId === peer.name);
+    if (isRevoked)
+    {
+        console.log(`Peer ${peer.name} has revoked their key. You may not communicate until re-trusted.`);
+        return false;
+    }
+    else
+    {
+        return true;
+    }
 }
 
 module.exports = {
