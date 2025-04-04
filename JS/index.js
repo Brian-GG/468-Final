@@ -1,9 +1,10 @@
 const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash } = require('./utils');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert } = require('./utils');
 const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
 const { scanFileVault, writeToVault } = require('./storage');
+const secureContext = require('./secureContext');
 
 var PORT;
 var SERVICE_NAME;
@@ -337,8 +338,10 @@ async function validatePrerequisites()
 
         config.userid = pubkeyHash;
         config.SERVER_NAME = `SecureShare-${pubkeyHash}`;
+        SERVICE_NAME = config.SERVER_NAME;
 
         console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!');
+        // TODO: Password must be at least 12 characters long
         const userPassphrase = await password({ message: 'Enter password: ' });
         const userPassphraseConfirm = await password({ message: 'Confirm password: ' });
 
@@ -351,6 +354,8 @@ async function validatePrerequisites()
         const salt = generateSalt();
         const encryptedResults = await encryptPrivateKey(privateKey, userPassphraseConfirm, salt);
 
+        secureContext.storeKey(encryptedResults.derivedKey);
+        
         config.keypair = {
             publicKey: publicKey,
             privateKey: encryptedResults.encryptedPrivateKey,
@@ -363,7 +368,7 @@ async function validatePrerequisites()
 
         const localIP = getLocalIPv4Address();
 
-        createRootCACert();
+        placeRootCACert();
         createServerCert(localIP, { ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256' });
         createClientCert({ ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256' });
 

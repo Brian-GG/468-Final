@@ -5,7 +5,7 @@ const utils = require('./utils');
 const crypto = require('crypto');
 const { readConfig } = require('./state');
 const { scanFileVault, decryptFile } = require('./storage');
-const { confirm } = require('@inquirer/prompts');
+const { confirm, password } = require('@inquirer/prompts');
 
 const config = readConfig();
 
@@ -30,6 +30,7 @@ function handleServerCreation() {
         switch (json.type)
         {
             case 'PEER_CONNECTED':
+                socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey: config.keypair.publicKey } }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
             case 'REQUEST_FILES_LIST':
@@ -156,7 +157,7 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
             key: fs.readFileSync(path.join(certDir, 'client.key')),
             cert: fs.readFileSync(path.join(certDir, 'client.crt')),
             ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
-            rejectUnauthorized: false,
+            rejectUnauthorized: true,
             ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
             honorCipherOrder: true,
             minVersion: 'TLSv1.3',
@@ -235,7 +236,7 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
             key: fs.readFileSync(path.join(certDir, 'client.key')),
             cert: fs.readFileSync(path.join(certDir, 'client.crt')),
             ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
-            rejectUnauthorized: false,
+            rejectUnauthorized: true,
             ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
             honorCipherOrder: true,
             minVersion: 'TLSv1.3',

@@ -47,11 +47,10 @@ module.exports = {
 
         const authTag = cipher.getAuthTag();
 
-        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex') };
+        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex'), derivedKey };
     },
 
-    decryptPrivateKey: async (encryptedPrivateKey, password, salt, iv, authTag) => {
-        const derivedKey = await argon2.hash(password+salt, ARGON2_OPTIONS);
+    decryptPrivateKey: async (encryptedPrivateKey, derivedKey, iv, authTag) => {
         const decipher = crypto.createDecipheriv(ALGORITHM, derivedKey.substring(0, KEY_LENGTH), Buffer.from(iv, 'hex'));
         decipher.setAuthTag(Buffer.from(authTag, 'hex'));
         let decrypted = decipher.update(encryptedPrivateKey, 'hex', 'utf8');
@@ -64,10 +63,33 @@ module.exports = {
         return crypto.randomBytes(32).toString('hex');
     },
 
-    createRootCACert: () => {
+    /**
+     * For our application, TLS required the creation of a root CA to
+     * sign the server and client certificates. Since it is not feasible to force the
+     * `openssl` library to remove randomness from the CA certificate generation process
+     * (in version 3.0.2), we are using a pre-generated CA key and certificate.
+     * 
+     * In a real world scenario, the CA certificate would be securely derived/provided with
+     * the application.
+     */
+    placeRootCACert: () => {
         const certDir = module.exports.getCertDirectory();
-        runOSCommand(`openssl genpkey -algorithm Ed25519 -out ${path.join(certDir, 'ca.key')}`);
-        runOSCommand(`openssl req -x509 -new -key ${path.join(certDir, 'ca.key')} -out ${path.join(certDir, 'ca.crt')} -days 3650 -subj "/CN=Root CA" -extensions v3_ca`);
+
+        const caKeyPath = path.join(__dirname, 'ca.key');
+        if (!fs.existsSync(caKeyPath))
+        {
+            console.error(`CA key not found at ${caKeyPath}`);
+            return;
+        }
+        fs.copyFileSync(caKeyPath, path.join(certDir, 'ca.key'));
+
+        const caCrtPath = path.join(__dirname, 'ca.crt');
+        if (!fs.existsSync(caCrtPath))
+        {
+            console.error(`CA certificate not found at ${caCrtPath}`);
+            return;
+        }
+        fs.copyFileSync(caCrtPath, path.join(certDir, 'ca.crt'));
     },
 
     createServerCert: (ip, options = {}) => {
