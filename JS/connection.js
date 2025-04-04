@@ -78,7 +78,7 @@ function handleServerCreation() {
                         const fileHash = crypto.createHash('sha256').update(decryptedBuffer).digest('hex');
                         const fileSize = decryptedBuffer.length;
 
-                        const decryptedPrivateKey = await utils.decryptPrivateKey(config.keypair.privateKey, derivedKey, config.iv, config.authTag);
+                        const decryptedPrivateKey = await utils.decryptPrivateKey(config.keypair.privateKey, derivedKey, config.keypair.iv, config.keypair.authTag);
                         const signature = utils.signData(fileHash, decryptedPrivateKey);
 
                         socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize, sourceEntity: config.userid, fileSignature: signature } }));
@@ -336,6 +336,7 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                     default:
                         console.log(`Unknown response type: ${response.type}`);
                         socket.end();
+                        process.exit(1);
                         break;
                 }
             }
