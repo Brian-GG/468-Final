@@ -1,8 +1,7 @@
-process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = 0;
 const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP } = require('./utils');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash } = require('./utils');
 const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
 const { scanFileVault, writeToVault } = require('./storage');
 
@@ -326,14 +325,19 @@ async function validatePrerequisites()
 {
     const config = readConfig();
     PORT = config.port;
-    SERVICE_NAME = config.serviceName;
     SERVICE_TYPE = config.serviceType;
 
     if (config.isFirstRun || !config.keypair)
     {
         console.log('First run detected');
         const { publicKey, privateKey } = generateKeyPair();
-        
+
+        let pubkeyHash = createSha256Hash(publicKey);
+        pubkeyHash = pubkeyHash.substring(0, 8);
+
+        config.userid = pubkeyHash;
+        config.SERVER_NAME = `SecureShare-${pubkeyHash}`;
+
         console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!');
         const userPassphrase = await password({ message: 'Enter password: ' });
         const userPassphraseConfirm = await password({ message: 'Confirm password: ' });
@@ -356,7 +360,6 @@ async function validatePrerequisites()
         }
 
         config.salt = salt;
-        config.derivedKey = encryptedResults.derivedKey;
 
         const localIP = getLocalIPv4Address();
 

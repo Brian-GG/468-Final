@@ -47,7 +47,7 @@ module.exports = {
 
         const authTag = cipher.getAuthTag();
 
-        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex'), derivedKey };
+        return { encryptedPrivateKey: encrypted, iv: iv.toString('hex'), authTag: authTag.toString('hex') };
     },
 
     decryptPrivateKey: async (encryptedPrivateKey, password, salt, iv, authTag) => {
@@ -213,5 +213,26 @@ CipherString = ${ciphers}
                 }
             });
         });
+    },
+
+    createSha256Hash: (data) => {
+        const hash = crypto.createHash('sha256');
+        hash.update(data);
+        return hash.digest('hex');   
+    },
+
+    signData: (data, privateKey) => {
+        const sign = crypto.createSign('SHA256');
+        sign.update(data);
+        sign.end();
+        const signature = sign.sign(privateKey, 'hex');
+        return signature;
+    },
+
+    verifySignature: (data, signature, publicKey) => {
+        const verify = crypto.createVerify('SHA256');
+        verify.update(data);
+        verify.end();
+        return verify.verify(publicKey, signature, 'hex');
     }
 }
