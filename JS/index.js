@@ -97,7 +97,7 @@ function listTrustedPeers()
 
     console.log('Trusted peers:');
     Object.values(config.trustedPeers).forEach(peer => {
-        const lastConnectedDate = new Date(config.trustedPeers[peer.name].lastConnected).toLocaleString();
+        const lastConnectedDate = new Date(config.trustedPeers[peer].lastConnected).toLocaleString();
         const isOnline = peers.has(peer.name) ? '(Online)' : '(Offline)';
         console.log(`- ${peer.name} ${isOnline}: last connected: ${lastConnectedDate}`);
     });
@@ -287,12 +287,12 @@ async function handleCommands()
                         
                         if (response && response.type == 'WELCOME')
                         {
-                            if (config.trustedPeers[peerName])
-                            {
-                                config.trustedPeers[peerName].publicKey = response.data.publicKey;
-                                config.trustedPeers[peerName].lastConnected = Date.now();
-                                saveConfig(config);
-                            }
+                            if (!config.trustedPeers[peerName])
+                                config.trustedPeers[peerName] = {};
+                            config.trustedPeers[peerName].name = peerName;
+                            config.trustedPeers[peerName].publicKey = response.data.publicKey;
+                            config.trustedPeers[peerName].lastConnected = Date.now();
+                            saveConfig(config);
                         }
                     } 
                     catch (error)

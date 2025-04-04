@@ -34,10 +34,14 @@ function handleServerCreation() {
                 const configDir = utils.getConfigDirectory();
                 let publicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
 
+                if (!config.trustedPeers[json.data.peerName])
+                    config.trustedPeers[json.data.peerName] = {};
                 config.trustedPeers[json.data.peerName] = {
+                    name: json.data.peerName,
                     publicKey: json.data.publicKey,
                     lastConnected: Date.now()
                 };
+                saveConfig(config);
 
                 socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey } }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
