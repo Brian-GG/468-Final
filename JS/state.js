@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const defaultConfig = { isFirstRun: true, port: 3000, serviceType: 'p2p-agent' };
+const defaultConfig = { isFirstRun: true, port: 3000, serviceType: 'p2p-agent', trustedPeers: {} };
 
 function createConfigDirectory()
 {
