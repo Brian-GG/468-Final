@@ -97,7 +97,7 @@ function listTrustedPeers()
 
     console.log('Trusted peers:');
     Object.values(config.trustedPeers).forEach(peer => {
-        const lastConnectedDate = new Date(config.trustedPeers[peer].lastConnected).toLocaleString();
+        const lastConnectedDate = new Date(config.trustedPeers[peer.name].lastConnected).toLocaleString();
         const isOnline = peers.has(peer.name) ? '(Online)' : '(Offline)';
         console.log(`- ${peer.name} ${isOnline}: last connected: ${lastConnectedDate}`);
     });
