@@ -30,7 +30,8 @@ def create_tls_connection(peer, password):
         conn.set_connect_state()
         conn.do_handshake()
 
-        print(f"Secure connection established with {peer['name']}")
+        peer_name = peer.get("name", "Unknown Peer")
+        print(f"Secure connection established with {peer_name}")
         conn.send(b"Hello from client")
         print(conn.recv(1024).decode())
         conn.close()
@@ -44,6 +45,9 @@ def start_tls_server(password):
             server_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
         decrypted_key_data = decrypt_file("file_vault/server.key.enc", password, 0)
         server_key = crypto.load_privatekey(crypto.FILETYPE_PEM, decrypted_key_data)
+
+        with open("peers.json", "r") as f:
+            trusted_peers = json.load(f)
 
         context = SSL.Context(SSL.TLS_SERVER_METHOD)
         context.use_certificate(server_cert)
@@ -66,6 +70,11 @@ def start_tls_server(password):
                 print(f"TLS handshake successful with {addr}")
                 print("Client certificate:")
                 print(conn.get_peer_certificate())
+                peers_hash = conn.get_peer_certificate().digest("sha256")
+                if peers_hash not in trusted_peers:
+                    print("Untrusted peer! Closing connection.")
+                    conn.close()
+                    continue
 
                 data = conn.recv(1024).decode("utf-8")
                 print(f"Received: {data}")
