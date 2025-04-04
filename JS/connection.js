@@ -32,6 +32,12 @@ function handleServerCreation() {
             case 'PEER_CONNECTED':
                 const configDir = utils.getConfigDirectory();
                 let publicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
+
+                config.trustedPeers[json.data.peerName] = {
+                    publicKey: json.data.publicKey,
+                    lastConnected: Date.now()
+                };
+                
                 socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey } }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
@@ -98,7 +104,7 @@ function handleServerCreation() {
     });
 
     socket.on('end', () => {
-        console.log('Client disconnected');
+        // noop
     });
 
     socket.on('error', (err) => {
