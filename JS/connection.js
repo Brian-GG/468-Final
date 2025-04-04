@@ -387,7 +387,8 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                     
                     console.log('File integrity verified.');
                 }
-
+                
+                const config = readConfig();
                 if (fileMetadata.fileSignature)
                 {
                     let peerPublicKey = config.trustedPeers[`SecureShare-${fileMetadata.sourceEntity}`].publicKey;
@@ -401,7 +402,6 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                     console.log('File signature verified.');
                 }
 
-                const config = readConfig();
                 config.fileMetadata[fileMetadata.fileHash] = {
                     fileName: fileMetadata.fileName,
                     fileSize: fileBuffer.length,
