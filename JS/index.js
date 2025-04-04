@@ -1,9 +1,9 @@
 const mdns = require('./mdns-discovery');
 const { readConfig, saveConfig } = require('./state');
 const { input, password, confirm } = require('@inquirer/prompts');
-const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert, getConfigDirectory, deriveKeyFromPassword } = require('./utils');
+const { generateKeyPair, generateSalt, encryptPrivateKey, createRootCACert, createServerCert, createClientCert, getLocalIPv4Address, resolveHostnameToIP, createSha256Hash, deriveRootCACert, placeRootCACert, getConfigDirectory, deriveKeyFromPassword, getFileVaultDirectory } = require('./utils');
 const { handleServerCreation, handleClientConnection, sendMessageToPeer, handleRequestFileFromPeer } = require('./connection');
-const { scanFileVault, writeToVault } = require('./storage');
+const { scanFileVault, writeToVault, decryptFile } = require('./storage');
 const secureContext = require('./secureContext');
 const fs = require('fs');
 const path = require('path');
@@ -229,6 +229,7 @@ async function requestFileFromPeer()
         {
             await writeToVault(response.data.fileName, response.data.fileContent, true);
             console.log(`\nFile ${response.data.fileName} received from ${peerName} and saved to vault.`);
+            return;
         }
         else if (response.type == 'FILE_REQUEST_DECLINED')
         {
@@ -253,9 +254,54 @@ async function requestFileFromPeer()
     }
 }
 
+async function decryptFileInVault()
+{
+    let fileList = scanFileVault();
+    if (fileList.length === 0)
+    {
+        console.log('No files found in vault');
+        return;
+    }
+
+    console.log('Files in vault:\n');
+    fileList.forEach((file) => {
+        console.log(`- ${file.name} (${file.size} bytes)`);
+    });
+
+    let fileName = await input({message: `Enter the name of the file to decrypt: `});
+    fileName += '.enc';
+    const filePath = path.join(getFileVaultDirectory(), `${fileName}`);
+    if (!fs.existsSync(filePath))
+    {
+        console.error(`File ${fileName} not found in vault`);
+        return;
+    }
+
+    try
+    {
+        let derivedKey = secureContext.getKey();
+        const decryptedFile = await decryptFile(fileName, derivedKey, true);
+        if (decryptedFile)
+        {
+            console.log(`File ${fileName} decrypted successfully.\nFor security reasons, the file will be re-encrypted in 30 seconds.`);
+            return decryptedFile;
+        }
+        else
+        {
+            console.error(`Failed to decrypt file ${fileName}`);
+            return;
+        }
+    }
+    catch (error)
+    {
+        console.error(`Error decrypting file ${fileName}:`, error);
+        return;
+    }
+}
+
 async function handleCommands()
 {
-    const availableCommands = ['list', 'connect', 'exit', 'friends', 'files', 'request', 'help'];
+    const availableCommands = ['list', 'connect', 'exit', 'friends', 'files', 'request', 'decrypt', 'help'];
     console.log(`P2P FILE SHARING APP\n\nAvailable commands: ${availableCommands.join(', ')}`);
     
     while (true)
@@ -318,6 +364,9 @@ async function handleCommands()
                 break;
             case 'request':
                 requestFileFromPeer();
+                break;
+            case 'decrypt':
+                decryptFileInVault();
                 break;
             case 'help':
                 console.log(`Available commands: ${availableCommands.join(', ')}`);

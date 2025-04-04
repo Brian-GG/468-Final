@@ -88,7 +88,7 @@ module.exports = {
         return fileList;
     },
 
-    decryptFile: async (fileName, derivedKey) => {
+    decryptFile: async (fileName, derivedKey, writeToDirectory=false) => {
         try {
             const fileVaultDir = getFileVaultDirectory();
             const filePath = path.join(fileVaultDir, `${fileName}`);
@@ -135,6 +135,14 @@ module.exports = {
                         decipher.final()
                     ]);
                     
+                    if (writeToDirectory)
+                    {
+                        if (fileName.endsWith('.enc'))
+                            fileName = fileName.slice(0, -4);
+                        const decryptedFilePath = path.join(fileVaultDir, fileName);
+                        fs.writeFileSync(decryptedFilePath, decrypted);
+                        fs.unlinkSync(`${filePath}.enc`);
+                    }
                     return decrypted;
                 }
                 catch (decryptError)
