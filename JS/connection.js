@@ -48,7 +48,7 @@ function handleServerCreation() {
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
             case 'REQUEST_FILES_LIST':
-                let files = scanFileVault();
+                let files = await scanFileVault();
                 socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files } }));
                 break;
             case 'REQUEST_FILE':
@@ -511,7 +511,8 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                     fileName: fileMetadata.fileName,
                     fileSize: fileBuffer.length,
                     fileHash: fileMetadata.fileHash,
-                    sourceEntity: fileMetadata.sourceEntity
+                    sourceEntity: fileMetadata.sourceEntity,
+                    receivedFrom: peerName,
                 }
                 saveConfig(config);
                 
@@ -543,16 +544,14 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
 function handleKRLValidation(peerName)
 {
     const config = readConfig();
-    const peers = getPeers();
 
     if (!config.keyRevocationList || !Array.isArray(config.keyRevocationList))
         return true;
 
-    let peer = peers.get(peerName);
-    const isRevoked = config.keyRevocationList.some(entry => entry.oldUserId === peer.name);
+    const isRevoked = config.keyRevocationList.some(entry => entry.oldUserId === peerName);
     if (isRevoked)
     {
-        console.log(`Peer ${peer.name} has revoked their key. You may not communicate until re-trusted.`);
+        console.log(`Peer ${peerName} has revoked their key. You may not communicate until re-trusted.`);
         return false;
     }
     else

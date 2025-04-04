@@ -2,18 +2,22 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { getFileVaultDirectory } = require("./utils");
-const { readConfig } = require('./state');
+const { readConfig, saveConfig } = require('./state');
 const secureContext = require('./secureContext');
+const mdns = require('./mdns-discovery');
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 
 module.exports = {
-    scanFileVault: () => {
+    scanFileVault: async () => {
         const fileVaultDir = getFileVaultDirectory();
         const fileList = [];
         const config = readConfig();
+
+        if (!config.fileMetadata)
+            config.fileMetadata = {};
         
         // Ensure directory exists
         if (!fs.existsSync(fileVaultDir))
@@ -29,7 +33,6 @@ module.exports = {
             for (const file of files)
             {
                 const filePath = path.join(fileVaultDir, file);
-                
                 try
                 {
                     const stats = fs.statSync(filePath);
@@ -43,6 +46,17 @@ module.exports = {
                         try
                         {
                             const fileContent = fs.readFileSync(filePath);
+                            const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+
+                            if (!config.fileMetadata[fileHash])
+                            {
+                                config.fileMetadata[fileHash] = {
+                                    name: file,
+                                    size: stats.size,
+                                    createdAt: Date.now(),
+                                    sourceEntity: config.userId
+                                };
+                            }
 
                             let derivedKey = secureContext.getKey();
                             const { encryptedFile, iv, authTag } = encryptFile(fileContent, derivedKey);
@@ -54,6 +68,7 @@ module.exports = {
                             
                             fileList.push({
                                 name: file,
+                                hash: fileHash,
                                 size: stats.size,
                                 iv,
                                 authTag
@@ -66,13 +81,44 @@ module.exports = {
                     } 
                     else
                     {
-                        const originalName = file.slice(0, -4); // Remove .enc extension
-                        fileList.push({
-                            name: originalName,
-                            encryptedName: file,
-                            size: stats.size
-                        });
+                        const originalName = file.slice(0, -4);
+                        try
+                        {
+                            const derivedKey = secureContext.getKey();
+                            const decrypted = await module.exports.decryptFile(file, derivedKey);
+
+                            if (decrypted)
+                            {
+                                const hash = crypto.createHash('sha256').update(decrypted).digest('hex');
+                                if (!config.fileMetadata[hash])
+                                {
+                                    config.fileMetadata[hash] = {
+                                        name: file,
+                                        size: stats.size,
+                                        createdAt: Date.now(),
+                                        sourceEntity: config.userId
+                                    };
+                                }
+                                fileList.push({
+                                    name: originalName,
+                                    hash: hash,
+                                    encryptedName: file,
+                                    size: stats.size,
+                                });
+                            }
+                            else
+                            {
+                                console.error(`Failed to decrypt file ${file}`);
+                            }
+                        }
+                        catch (err)
+                        {
+                            console.error(`Error decrypting file ${file}:`, err);
+                        }
+
                     }
+
+                    saveConfig(config);
                 }
                 catch (error)
                 {
@@ -197,6 +243,43 @@ module.exports = {
         }
 
         return true;
+    },
+
+    findAlternativeFileSources: (fileHash) => {
+        const config = readConfig();
+
+        if (!config.fileMetadata || !config.fileMetadata[fileHash])
+            return null;
+
+        const fileMetadata = config.fileMetadata[fileHash];
+        const alternatives = [];
+
+        const activePeers = mdns.getPeers();
+
+        if (config.trustedPeers)
+        {
+            for (const peerName in config.trustedPeers)
+            {
+                const peer = config.trustedPeers[peerName];
+                if (peer.name == `SecureShare-${fileMetadata.sourceEntity}`)
+                    continue;
+
+                if (peer.fileMetadata && peer.fileMetadata[fileHash])
+                {
+                    const isOnline = activePeers.has(peer.name) ? true : false;
+                    alternatives.push({
+                        name: peerName,
+                        isOnline,
+                        host: peer.host,
+                        port: peer.port,
+                        lastSeen: peer.lastConnected || 0,
+                        ...peer.fileMetadata[fileHash]
+                    });
+                }
+            }
+        }
+
+        return alternatives;
     }
 }
 
