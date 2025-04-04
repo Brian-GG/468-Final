@@ -325,8 +325,6 @@ async function handleCommands()
 async function validatePrerequisites()
 {
     const config = readConfig();
-    PORT = config.port;
-    SERVICE_TYPE = config.serviceType;
 
     if (config.isFirstRun || !config.keypair)
     {
@@ -376,6 +374,10 @@ async function validatePrerequisites()
         saveConfig(config);
     }
 
+    PORT = config.port;
+    SERVICE_NAME = config.SERVICE_NAME;
+    SERVICE_TYPE = config.serviceType;
+    
     let [serviceName, browser] = initAgent();
     handleServerCreation(); // Start the server
     await handleCommands();
