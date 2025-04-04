@@ -251,17 +251,18 @@ CipherString = ${ciphers}
     },
 
     signData: (data, privateKey) => {
-        const sign = crypto.createSign('SHA256');
-        sign.update(data);
-        sign.end();
-        const signature = sign.sign(privateKey, 'hex');
-        return signature;
+        const signature = crypto.sign(null, 
+            Buffer.isBuffer(data) ? data : Buffer.from(data), 
+            privateKey);
+        return signature.toString('hex');
     },
 
     verifySignature: (data, signature, publicKey) => {
-        const verify = crypto.createVerify('SHA256');
-        verify.update(data);
-        verify.end();
-        return verify.verify(publicKey, signature, 'hex');
+        return crypto.verify(
+            null, 
+            Buffer.isBuffer(data) ? data : Buffer.from(data),
+            publicKey, 
+            Buffer.from(signature, 'hex')
+        );
     }
 }
