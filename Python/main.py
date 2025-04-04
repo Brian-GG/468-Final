@@ -11,8 +11,9 @@ def main():
     password = create_user_file()
     password = login()
     create_data_files()
+    stop_event = threading.Event()
     zeroconf = joinNetwork()
-    start_tls_server_thread(password)
+    start_tls_server_thread(password, stop_event)
     while True:
         
         print("Welcome to SecureShare V1.0. Please select an action to continue:\n"
@@ -41,6 +42,7 @@ def main():
         elif action == "6":
             discover_peers(zeroconf)
         elif action == "7":
+            stop_event.set()
             exit()
         else:
             print("invalid input!\n")

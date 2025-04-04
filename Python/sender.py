@@ -40,7 +40,7 @@ def create_tls_connection(peer, password):
     except Exception as e:
         print(f"TLS connection failed: {e}")
 
-def start_tls_server(password):
+def start_tls_server(password, stop_event):
     try:
         with open("file_vault/server.crt", "rb") as f:
             server_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
@@ -62,7 +62,7 @@ def start_tls_server(password):
 
         print("TLS server is listening on port 3000...")
 
-        while True:
+        while not stop_event.is_set():
             client_sock, addr = sock.accept()
             conn = SSL.Connection(context, client_sock)
             conn.set_accept_state()
@@ -71,9 +71,10 @@ def start_tls_server(password):
                 print(f"TLS handshake successful with {addr}")
                 client_cert = conn.get_peer_certificate()
                 public_key = client_cert.get_pubkey()
+                print(f"rawkey: {public_key}")
                 public_key_asn1 = crypto.dump_publickey(crypto.FILETYPE_ASN1, public_key)
                 peers_hash = hashlib.sha256(public_key_asn1).hexdigest()
-                print(f"Peer's public key bruh: {peers_hash}")
+                print(f"Peer's public key bruh2: {peers_hash}")
                 if peers_hash not in [peer["public_key_hash"] for peer in trusted_peers.values()]:
                     print("Untrusted peer! Closing connection.")
                     conn.close()
@@ -134,5 +135,5 @@ def message_peer(password):
     return None
 
 def start_tls_server_thread(password):
-    server_thread = threading.Thread(target=start_tls_server, args=(password,), daemon=True)
+    server_thread = threading.Thread(target=start_tls_server, args=(password, stop_event), daemon=True)
     server_thread.start()
