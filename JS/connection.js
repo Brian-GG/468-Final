@@ -27,7 +27,7 @@ function handleServerCreation() {
   const server = tls.createServer(options, async (socket) => {
     socket.on('data', async (data) => {
         let json = JSON.parse(data.toString());
-        let config = readConfig();
+        const config = readConfig();
         const configDir = utils.getConfigDirectory();
 
         switch (json.type)
@@ -136,9 +136,8 @@ function handleServerCreation() {
                 };
                 delete config.trustedPeers[migrationAnnouncement.oldUserId];
                 
-                if (!config.keyRevocationList[migrationAnnouncement.oldUserId])
-                    config.keyRevocationList[migrationAnnouncement.oldUserId] = [];
-                config.keyRevocationList[migrationAnnouncement.oldUserId].push({
+                config.keyRevocationList.push({
+                    oldUserId: migrationAnnouncement.oldUserId,
                     newUserId: migrationAnnouncement.newUserId,
                     newPublicKey: migrationAnnouncement.newPublicKey,
                     timestamp: Date.now()
@@ -267,6 +266,17 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
 
         socket.on('data', (data) => {
             responseData += data.toString();
+            try
+            {
+                const response = JSON.parse(responseData);
+                clearTimeout(connectionTimeout);
+                socket.end();
+                resolve(response);
+            }
+            catch (err)
+            {
+                // noop
+            }
             try
             {
                 const response = JSON.parse(responseData);

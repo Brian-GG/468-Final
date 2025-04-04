@@ -345,6 +345,7 @@ async function revokeKey()
             {
                 console.log(`Key revocation acknowledged by ${response.data.peerName}`);
                 config.trustedPeers[response.data.peerName] = {
+                    ...config.trustedPeers[response.data.peerName],
                     publicKey: response.data.publicKey,
                     lastConnected: Date.now(),
                 }
