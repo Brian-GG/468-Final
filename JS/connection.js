@@ -8,11 +8,9 @@ const { scanFileVault, decryptFile } = require('./storage');
 const { confirm, password } = require('@inquirer/prompts');
 const secureContext = require('./secureContext');
 
-const config = readConfig();
-
 function handleServerCreation() {
   const certDir = utils.getCertDirectory();
-
+  const config = readConfig();
   const options = {
     key: fs.readFileSync(path.join(certDir, 'server.key')),
     cert: fs.readFileSync(path.join(certDir, 'server.crt')),
@@ -28,6 +26,8 @@ function handleServerCreation() {
   const server = tls.createServer(options, async (socket) => {
     socket.on('data', async (data) => {
         let json = JSON.parse(data.toString());
+        const config = readConfig();
+
         switch (json.type)
         {
             case 'PEER_CONNECTED':
@@ -47,7 +47,6 @@ function handleServerCreation() {
                 socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files } }));
                 break;
             case 'REQUEST_FILE':
-                const config = readConfig();
                 let peerName = json.data.peerName;
                 let fileName = json.data.fileName;
                 let encryptedFileName = `${fileName}.enc`;
@@ -64,7 +63,8 @@ function handleServerCreation() {
                             break;
                         }
                         
-                        let decryptedBuffer = await decryptFile(encryptedFileName, config.derivedKey);
+                        let derivedKey = secureContext.getKey()
+                        let decryptedBuffer = await decryptFile(encryptedFileName, derivedKey);
                         if (!decryptedBuffer)
                         {
                             socket.write(JSON.stringify({ type: 'FILE_DECRYPTION_FAILED', data: { fileName, peerName } }));
@@ -74,7 +74,6 @@ function handleServerCreation() {
                         const fileHash = crypto.createHash('sha256').update(decryptedBuffer).digest('hex');
                         const fileSize = decryptedBuffer.length;
 
-                        let derivedKey = secureContext.getKey()
                         const decryptedPrivateKey = await utils.decryptPrivateKey(config.keypair.privateKey, derivedKey, config.iv, config.authTag);
                         const signature = utils.signData(fileHash, decryptedPrivateKey);
 
