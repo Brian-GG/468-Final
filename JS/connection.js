@@ -3,9 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const utils = require('./utils');
 const crypto = require('crypto');
-const { readConfig } = require('./state');
+const { readConfig, saveConfig } = require('./state');
 const { scanFileVault, decryptFile } = require('./storage');
 const { confirm, password } = require('@inquirer/prompts');
+const secureContext = require('./secureContext');
 
 const config = readConfig();
 
@@ -37,7 +38,7 @@ function handleServerCreation() {
                     publicKey: json.data.publicKey,
                     lastConnected: Date.now()
                 };
-                
+
                 socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey } }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
@@ -46,6 +47,7 @@ function handleServerCreation() {
                 socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files } }));
                 break;
             case 'REQUEST_FILE':
+                const config = readConfig();
                 let peerName = json.data.peerName;
                 let fileName = json.data.fileName;
                 let encryptedFileName = `${fileName}.enc`;
@@ -72,10 +74,11 @@ function handleServerCreation() {
                         const fileHash = crypto.createHash('sha256').update(decryptedBuffer).digest('hex');
                         const fileSize = decryptedBuffer.length;
 
-                        // const decryptedPrivateKey = await utils.decryptPrivateKey(config.encryptedPrivateKey, config.password, config.salt, config.iv, config.authTag);
-                        // const signature = utils.signData(fileHash, config.)
+                        let derivedKey = secureContext.getKey()
+                        const decryptedPrivateKey = await utils.decryptPrivateKey(config.keypair.privateKey, derivedKey, config.iv, config.authTag);
+                        const signature = utils.signData(fileHash, decryptedPrivateKey);
 
-                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize } }));
+                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize, sourceEntity: config.userid, fileSignature: signature } }));
 
                         setTimeout(() => {
                             socket.write(decryptedBuffer);
@@ -318,7 +321,6 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                 {
                     case 'FILE_METADATA':
                         fileMetadata = response.data;
-                        console.log(`\nReceiving ${fileMetadata.fileName} (${fileMetadata.fileSize} bytes)`);
                         isReceivingFile = true;
                         break;
                     case 'FILE_REQUEST_DECLINED':
@@ -381,13 +383,37 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                     
                     console.log('File integrity verified.');
                 }
+
+                if (fileMetadata.fileSignature)
+                {
+                    let peerPublicKey = config.trustedPeers[`SecureShare-${fileMetadata.sourceEntity}`].publicKey;
+                    const isVerified = utils.verifySignature(fileMetadata.fileHash, fileMetadata.fileSignature, peerPublicKey);
+                    if (!isVerified)
+                    {
+                        console.error('File signature verification failed!');
+                        reject(new Error('File signature verification failed'));
+                        return;
+                    }
+                    console.log('File signature verified.');
+                }
+
+                const config = readConfig();
+                config.fileMetadata[fileMetadata.fileHash] = {
+                    fileName: fileMetadata.fileName,
+                    fileSize: fileBuffer.length,
+                    fileHash: fileMetadata.fileHash,
+                    sourceEntity: fileMetadata.sourceEntity
+                }
+                saveConfig(config);
                 
                 resolve({
                     type: 'FILE_RECEIVED',
                     data: {
                         fileName: fileMetadata.fileName,
                         fileContent: fileBuffer,
-                        fileSize: fileBuffer.length
+                        fileSize: fileBuffer.length,
+                        fileHash: fileMetadata.fileHash,
+                        sourceEntity: fileMetadata.sourceEntity,
                     }
                 });
             }
