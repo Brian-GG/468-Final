@@ -17,7 +17,7 @@ function handleServerCreation() {
     cert: fs.readFileSync(path.join(certDir, 'server.crt')),
     ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
     requestCert: true,
-    rejectUnauthorized: false,
+    rejectUnauthorized: true,
     ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
     honorCipherOrder: true,
     minVersion: 'TLSv1.3',
@@ -63,7 +63,10 @@ function handleServerCreation() {
                         const fileHash = crypto.createHash('sha256').update(decryptedBuffer).digest('hex');
                         const fileSize = decryptedBuffer.length;
 
-                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize, peerName } }));
+                        // const decryptedPrivateKey = await utils.decryptPrivateKey(config.encryptedPrivateKey, config.password, config.salt, config.iv, config.authTag);
+                        // const signature = utils.signData(fileHash, config.)
+
+                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize } }));
 
                         setTimeout(() => {
                             socket.write(decryptedBuffer);
@@ -117,7 +120,7 @@ async function handleClientConnection(host, port, timeout=10000) {
             key: fs.readFileSync(path.join(certDir, 'client.key')),
             cert: fs.readFileSync(path.join(certDir, 'client.crt')),
             ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
-            rejectUnauthorized: false,
+            rejectUnauthorized: true,
             ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
             honorCipherOrder: true,
             minVersion: 'TLSv1.3',
@@ -154,8 +157,10 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
             cert: fs.readFileSync(path.join(certDir, 'client.crt')),
             ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
             rejectUnauthorized: false,
-            ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256',
-            honorCipherOrder: true
+            ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
+            honorCipherOrder: true,
+            minVersion: 'TLSv1.3',
+            maxVersion: 'TLSv1.3'
         };
 
         const connectionTimeout = setTimeout(() => {
@@ -231,8 +236,10 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
             cert: fs.readFileSync(path.join(certDir, 'client.crt')),
             ca: fs.readFileSync(path.join(certDir, 'ca.crt')),
             rejectUnauthorized: false,
-            ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256',
-            honorCipherOrder: true
+            ciphers: 'TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256',
+            honorCipherOrder: true,
+            minVersion: 'TLSv1.3',
+            maxVersion: 'TLSv1.3'
         };
 
         const connectionTimeout = setTimeout(() => {
