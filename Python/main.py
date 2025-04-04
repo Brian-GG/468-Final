@@ -12,6 +12,7 @@ def main():
     password = login()
     create_data_files()
     zeroconf = joinNetwork()
+    start_tls_server_thread(password)
     while True:
         
         print("Welcome to SecureShare V1.0. Please select an action to continue:\n"
@@ -22,11 +23,10 @@ def main():
             "4. Upload A File\n"
             "5. Export A File\n"
             "6. Add A Peer\n"
-            "7. Listen For Requests\n"
-            "8. Quit\n")
+            "7. Quit\n")
         
 
-        action = input("Enter action: ")
+        action = input("\nEnter action: ")
 
         if action == "1":
             print("one")
@@ -41,8 +41,6 @@ def main():
         elif action == "6":
             discover_peers(zeroconf)
         elif action == "7":
-            start_tls_server(password)
-        elif action == "8":
             exit()
         else:
             print("invalid input!\n")

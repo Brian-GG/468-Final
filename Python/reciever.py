@@ -144,6 +144,6 @@ def discover_peers(zeroconf):
         return None
 
 def load_public_key():
-    with open("file_vault/server.crt", "rb") as f:
+    with open("file_vault/client.crt", "rb") as f:
         public_key = f.read()
         return public_key

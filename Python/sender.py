@@ -1,7 +1,7 @@
 from OpenSSL import crypto, SSL
 import socket
 import json
-import io
+import threading
 import os
 from encryption import decrypt_file
 
@@ -130,3 +130,7 @@ def message_peer(password):
     except Exception as e:
         print(f"Error choosing peer: {e}")
     return None
+
+def start_tls_server_thread(password):
+    server_thread = threading.Thread(target=start_tls_server, args=(password,), daemon=True)
+    server_thread.start()
