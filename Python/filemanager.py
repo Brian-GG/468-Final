@@ -150,3 +150,10 @@ def is_valid_password(password):
     ):
         return True
     return False
+
+def read_peer_files():
+    with open("peerfiles.json", "r") as f:
+        peer_files = json.load(f)
+    print("Peer Files:")
+    for peer, files in peer_files.items():
+        print(f"{peer}: {', '.join(files)}")

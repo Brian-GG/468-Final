@@ -156,8 +156,42 @@ def list_available_files():
     return []
 
 def request_file(peer, password, filename):
-    message = {"type": "REQUEST_FILE", "data": {"filename": filename}}
-    create_tls_connection(peer, password, message)
+    try:
+        message = {"type": "REQUEST_FILE", "data": {"filename": filename}}
+        create_tls_connection(peer, password, message)
+    except Exception as e:
+        print(f"Failed to retrieve file from {peer['name']}: {e}")
+        print("Searching for other peers with the same file...")
+
+        if os.path.exists("peerfiles.json"):
+            with open("peerfiles.json", "r") as f:
+                peer_files = json.load(f)
+
+            file_hash = None
+            for peer_name, files in peer_files.items():
+                if filename in files:
+                    file_hash = files[filename]["hash"]
+                    break
+
+            if file_hash:
+                for peer_name, files in peer_files.items():
+                    if peer_name != peer["name"]:
+                        for file, metadata in files.items():
+                            if metadata["hash"] == file_hash:
+                                print(f"Found file '{filename}' with matching hash on peer '{peer_name}'.")
+                                new_peer = {
+                                    "name": peer_name,
+                                    "address": peer_files[peer_name]["address"]
+                                }
+                                try:
+                                    create_tls_connection(new_peer, password, message)
+                                    return
+                                except Exception as e:
+                                    print(f"Failed to retrieve file from {peer_name}: {e}")
+            else:
+                print(f"No other peers found with the file '{filename}'.")
+        else:
+            print("peerfiles.json not found. Unable to search for other peers.")
 
 def send_file(peer, password, filename):
     if os.path.exists(filename):
@@ -170,6 +204,7 @@ def send_file(peer, password, filename):
                 filedb = json.load(f)
                 if filename in filedb:
                     file_signature = filedb[filename]["signature"]
+                    uid = filedb[filename]["uid"]
                 else:
                     print("File not found in database")
                     return
@@ -177,7 +212,7 @@ def send_file(peer, password, filename):
             print("File database not found")
             return
 
-        message = {"type": "SEND_FILE", "data" : {"filename": filename, "file_data": file_data.hex(), "hash": file_hash, "signature": file_signature}}
+        message = {"type": "SEND_FILE", "data" : {"filename": filename, "file_data": file_data.hex(), "hash": file_hash, "signature": file_signature, "uid": uid}}
         create_tls_connection(peer, password, message)
 
     else:
@@ -207,6 +242,7 @@ def handle_client_connection(conn, password):
                             filedb = json.load(f)
                         if filename in filedb:
                             file_signature = filedb[filename]["signature"]
+                            uid = filedb[filename]["uid"]
                         else:
                             conn.send(b"File not found in database.")
                             return
@@ -220,6 +256,7 @@ def handle_client_connection(conn, password):
                         "file_data": file_data.hex(),
                         "hash": file_hash,
                         "signature": file_signature,
+                        "uid": uid
                     }
                     conn.send(json.dumps(response).encode())
                 else:
@@ -290,6 +327,7 @@ def handle_response(response, message, password):
                 file_data = bytes.fromhex(response_data["file_data"])
                 file_hash = response_data["hash"]
                 file_signature = base64.b64decode(response_data["signature"])
+                uid = response_data["uid"]
 
                 if hashlib.sha256(file_data).hexdigest() == file_hash:
                     print(f"File '{filename}' passed integrity check.")
@@ -304,10 +342,30 @@ def handle_response(response, message, password):
                             padding.PKCS1v15(),
                             hashes.SHA256(),
                         )
-                        with open(filename, "wb") as f:
+                        file_path = os.path.join("file_vault", filename)
+                        with open(file_path, "wb") as f:
                             f.write(file_data)
-                        import_files(password, 0, filename)
-                        print(f"File '{filename}' received and verified successfully.")
+
+                        # Encrypt the file
+                        encrypt_file(file_path, password)
+
+                        # Add file info to filedb.json
+                        if os.path.exists("filedb.json"):
+                            with open("filedb.json", "r") as f:
+                                filedb = json.load(f)
+                        else:
+                            filedb = {}
+
+                        filedb[filename] = {
+                            "uid": uid,
+                            "hash": file_hash,
+                            "signature": base64.b64encode(file_signature).decode('utf-8'),
+                        }
+
+                        with open("filedb.json", "w") as f:
+                            json.dump(filedb, f, indent=4)
+
+                        print(f"File '{filename}' saved, encrypted, and added to filedb.json.") 
                     except Exception as e:
                         print(f"Signature verification failed: {e}")
                 else:
