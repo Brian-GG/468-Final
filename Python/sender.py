@@ -228,8 +228,6 @@ def handle_client_connection(conn, password):
             conn.send(json.dumps(response).encode())
 
         elif req_type == "REQUEST_FILE":
-            peer_cert = conn.get_certificate()
-            cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, peer_cert)
             filename = request.get("data", {}).get("filename")
             tmp_filename = filename + ".enc"
             file_path = os.path.join("file_vault", tmp_filename)
@@ -245,7 +243,6 @@ def handle_client_connection(conn, password):
                         if filename in filedb:
                             file_hash = filedb[filename]["hash"]
                             file_signature = filedb[filename]["signature"]
-                            encoded_cert = base64.b64encode(cert_pem).decode('utf-8')
                             uid = filedb[filename]["uid"]
                         else:
                             conn.send(json.dumps({"message": "File not found in database."}).encode())
@@ -254,6 +251,9 @@ def handle_client_connection(conn, password):
                         conn.send(json.dumps({"message": "File database not found."}).encode())
                         return
 
+                    with open("file_vault/client.crt", "rb") as f:
+                        client_cert = f.read()
+                    encoded_cert = base64.b64encode(client_cert).decode('utf-8')
                     # Send the file data, hash, and signature
                     response = {
                         "filename": filename,
@@ -279,9 +279,7 @@ def handle_client_connection(conn, password):
                 uid = request.get("data", {}).get("uid")
                 decoded_hash = base64.urlsafe_b64decode(file_hash)
                 file_signature = base64.b64decode(request.get("data", {}).get("signature"))
-                print(f"{decoded_hash}\n")
-                print(f"{file_hash}\n")
-                print(f"{hashlib.sha256(file_data).digest()}\n")
+
                 if hashlib.sha256(file_data).digest() == decoded_hash:
                     public_key_pem = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
                         encoding=serialization.Encoding.PEM,
@@ -357,17 +355,24 @@ def handle_response(response, message, password):
                 filename = response_data["filename"]
                 file_data = bytes.fromhex(response_data["file_data"])
                 file_hash = response_data["hash"]
+                print(f"file_hash: {file_hash}")
                 decoded_hash = base64.urlsafe_b64decode(file_hash)
                 file_signature = base64.b64decode(response_data["signature"])
                 uid = response_data["uid"]
 
                 if hashlib.sha256(file_data).digest() == decoded_hash:
+                    print(f"file_signature type: {type(file_signature)}")
+                    print(f"decoded_hash type: {type(decoded_hash)}")
                     print(f"File '{filename}' passed integrity check.")
-
                     cert_pem_b64 = response_data.get("certificate")
                     cert_pem = base64.b64decode(cert_pem_b64)
-                    peer_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem.encode())
-                    public_key = peer_cert.get_pubkey().to_cryptography_key()
+                    peer_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
+                    public_key_pem = peer_cert.get_pubkey().to_cryptography_key().public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
+                    public_key = serialization.load_pem_public_key(public_key_pem)
+                    print(type(public_key))
                     try:
                         public_key.verify(
                             file_signature,
