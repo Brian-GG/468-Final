@@ -245,6 +245,7 @@ def handle_client_connection(conn, password):
                         if filename in filedb:
                             file_hash = filedb[filename]["hash"]
                             file_signature = filedb[filename]["signature"]
+                            encoded_cert = base64.b64encode(cert_pem).decode('utf-8')
                             uid = filedb[filename]["uid"]
                         else:
                             conn.send(json.dumps({"message": "File not found in database."}).encode())
@@ -260,12 +261,14 @@ def handle_client_connection(conn, password):
                         "hash": file_hash,
                         "signature": file_signature,
                         "uid": uid,
-                        "certificate": cert_pem
+                        "certificate": encoded_cert
                     }
                     conn.send(json.dumps(response).encode())
                 else:
                     conn.send(json.dumps({"message": "File transfer declined."}).encode())
-        
+            else:
+                conn.send(json.dumps({"message": "File not found."}).encode())
+
         elif req_type == "SEND_FILE":
             filename = request.get("data", {}).get("filename")
             consent = input(f"Accept file {filename}? (yes/no): ")
@@ -361,7 +364,8 @@ def handle_response(response, message, password):
                 if hashlib.sha256(file_data).digest() == decoded_hash:
                     print(f"File '{filename}' passed integrity check.")
 
-                    cert_pem = response_data.get("certificate")
+                    cert_pem_b64 = response_data.get("certificate")
+                    cert_pem = base64.b64decode(cert_pem_b64)
                     peer_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem.encode())
                     public_key = peer_cert.get_pubkey().to_cryptography_key()
                     try:
