@@ -194,12 +194,13 @@ def send_file(peer, password, filename):
     tmp_filename, _ = os.path.splitext(filename)
     if os.path.exists(file_path):
         file_data = decrypt_file(file_path, password, 0)
-        file_hash = hashlib.sha256(file_data).hexdigest()
+        # file_hash = hashlib.sha256(file_data).hexdigest()
     
         if os.path.exists("filedb.json"):
             with open("filedb.json", "r") as f:
                 filedb = json.load(f)
                 if tmp_filename in filedb:
+                    file_hash = filedb[tmp_filename]["hash"]
                     file_signature = filedb[tmp_filename]["signature"]
                     uid = filedb[tmp_filename]["uid"]
                 else:
@@ -219,14 +220,14 @@ def handle_client_connection(conn, password):
     try:
         data = conn.recv(4096).decode()
         request = json.loads(data)
-        type = request.get("type")
-        print(type)
+        req_type = request.get("type")
+        print(req_type)
         
-        if type == "LIST_FILES":
+        if req_type == "LIST_FILES":
             response = list_available_files()
             conn.send(json.dumps(response).encode())
 
-        elif type == "REQUEST_FILE":
+        elif req_type == "REQUEST_FILE":
             peer_cert = conn.get_certificate()
             cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, peer_cert)
             filename = request.get("data", {}).get("filename")
@@ -265,15 +266,20 @@ def handle_client_connection(conn, password):
                 else:
                     conn.send(json.dumps({"message": "File transfer declined."}).encode())
         
-        elif type == "SEND_FILE":
+        elif req_type == "SEND_FILE":
             filename = request.get("data", {}).get("filename")
             consent = input(f"Accept file {filename}? (yes/no): ")
             if consent.lower() == "yes":
                 conn.send(json.dumps({"message": "File transfer accepted."}).encode())
                 file_data = bytes.fromhex(request.get("data", {}).get("file_data"))
                 file_hash = request.get("data", {}).get("hash")
+                uid = request.get("data", {}).get("uid")
+                decoded_hash = base64.urlsafe_b64decode(file_hash)
                 file_signature = base64.b64decode(request.get("data", {}).get("signature"))
-                if hashlib.sha256(file_data).hexdigest() == file_hash:
+                print(f"{decoded_hash}\n")
+                print(f"{file_hash}\n")
+                print(f"{hashlib.sha256(file_data).digest()}\n")
+                if hashlib.sha256(file_data).digest() == decoded_hash:
                     public_key_pem = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
                         encoding=serialization.Encoding.PEM,
                         format=serialization.PublicFormat.SubjectPublicKeyInfo,
