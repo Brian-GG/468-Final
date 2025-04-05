@@ -236,14 +236,14 @@ def handle_client_connection(conn, password):
             if filename in list_available_files():
                 consent = input(f"file {filename} requested. Do you want to send it? (yes/no): ")
                 if consent.lower() == "yes":
-                    file_data = decrypt_file(file_path + ".enc", password, 0)
-                    file_hash = hashlib.sha256(file_data).hexdigest()
+                    file_data = decrypt_file(file_path, password, 0)
 
                     # Retrieve the file's signature from filedb.json
                     if os.path.exists("filedb.json"):
                         with open("filedb.json", "r") as f:
                             filedb = json.load(f)
                         if filename in filedb:
+                            file_hash = filedb[filename]["hash"]
                             file_signature = filedb[filename]["signature"]
                             uid = filedb[filename]["uid"]
                         else:
@@ -354,10 +354,11 @@ def handle_response(response, message, password):
                 filename = response_data["filename"]
                 file_data = bytes.fromhex(response_data["file_data"])
                 file_hash = response_data["hash"]
+                decoded_hash = base64.urlsafe_b64decode(file_hash)
                 file_signature = base64.b64decode(response_data["signature"])
                 uid = response_data["uid"]
 
-                if hashlib.sha256(file_data).hexdigest() == file_hash:
+                if hashlib.sha256(file_data).digest() == decoded_hash:
                     print(f"File '{filename}' passed integrity check.")
 
                     cert_pem = response_data.get("certificate")
