@@ -1,1 +1,4 @@
 zeroconf
+cryptography
+argon2-
+pyopenssl
