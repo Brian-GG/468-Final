@@ -1,7 +1,7 @@
 from zeroconf import ServiceBrowser, ServiceListener, Zeroconf, ZeroconfServiceTypes, ServiceInfo
 from time import sleep
 from typing import cast
-from sender import add_trusted_peer
+from sender import add_trusted_peer, sync_revoked_keys
 from OpenSSL import crypto, SSL
 import socket
 import threading
@@ -138,6 +138,7 @@ def discover_peers(zeroconf, password):
         if confirm == "yes":
             add_trusted_peer(selected_peer, password)
             print(f"Peer {selected_peer['name']} added to trusted peers.")
+            sync_revoked_keys(password)
             return None
         else:
             print("Peer not trusted. Skipping.")

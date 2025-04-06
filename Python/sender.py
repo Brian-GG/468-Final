@@ -204,6 +204,20 @@ def send_file(peer, password, filename):
     else:
         print("File not found")
 
+def sync_revoked_keys(password):
+    with open("revoked.json", "r") as f:
+        revoked_keys = json.load(f)
+    with open("peers.json", "r") as f:
+        trusted_peers = json.load(f)
+    
+    for peer in trusted_peers.values():
+        try:
+            message = {"type": "SYNC_REVOKED", "data": revoked_keys}
+            create_tls_connection(peer, password, message)
+        except Exception as e:
+            print(f"Failed to sync revoked keys with {peer['name']}: {e}")
+
+
 def get_peer_info(peer, password):
     try:
         message = {"type": "REQUEST_PUBLIC_KEY", "data": {}}
@@ -238,8 +252,54 @@ def handle_client_connection(conn, password):
         request = recieve_message(conn)
         req_type = request.get("type")
         print(req_type)
-        
-        if req_type == "REQUEST_PUBLIC_KEY":
+
+        if req_type == "SYNC_REVOKED":
+            if not is_peer_trusted:
+                print("Peer is not trusted. Cannot sync revoked list.")
+                conn.close()
+                return
+            
+            try:
+                revoked_keys = request.get("data")
+                merge_revoked_list(revoked_keys)
+
+                with open("revoked.json", "r") as f:
+                    revoked_local_keys = json.load(f)
+                for uid in revoked_keys:
+                    revoke_entries_by_uid(uid)
+                response = {"message": revoked_local_keys}
+                send_message(conn, response)
+            except Exception as e:
+                print(f"Failed to merge revoked keys: {e}")
+
+        elif req_type == "MIGRATION":
+            migration_data = request.get("data")
+            old_uid = migration_data.get("old_uid")
+            new_uid = migration_data.get("new_uid")
+            old_public_key = migration_data.get("old_public_key")
+            new_public_key = migration_data.get("new_public_key")
+            signature = base64.b64decode(migration_data.get("signature"))
+
+            public_key_bytes = base64.b64decode(old_public_key)
+            public_key = serialization.load_pem_public_key(public_key_bytes)
+            data_to_verify = {k: migration_data[k] for k in migration_data if k != "signature"}
+
+            try:
+                public_key.verify(signature, json.dumps(data_to_verify, sort_keys=True).encode('utf-8'))
+                print(f"Migration data verified successfully. Old UID: {old_uid}, New UID: {new_uid}")
+
+                add_to_revoked_keys(old_uid, old_public_key)
+                revoke_entries_by_uid(old_uid)
+
+            except Exception as e:
+                print(f"Signature verification failed: {e}")
+                response = {"message": "Signature verification failed. Migration failed."}
+                send_message(conn, response)
+                return
+            response = {"message": "Migration successful."}
+            send_message(conn, response)
+
+        elif req_type == "REQUEST_PUBLIC_KEY":
             with open("file_vault/client.crt", "rb") as f:
                 client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
             public_key = client_cert.get_pubkey().to_cryptography_key().public_bytes(
@@ -271,7 +331,7 @@ def handle_client_connection(conn, password):
 
         elif req_type == "REQUEST_FILE":
             if not is_peer_trusted:
-                print("Peer is not trusted. Cannot list files.")
+                print("Peer is not trusted. Cannot request files.")
                 conn.close()
                 return
             
@@ -322,7 +382,7 @@ def handle_client_connection(conn, password):
 
         elif req_type == "SEND_FILE":
             if not is_peer_trusted:
-                print("Peer is not trusted. Cannot list files.")
+                print("Peer is not trusted. Cannot send files.")
                 conn.close()
                 return
 
@@ -391,7 +451,15 @@ def handle_response(conn, message, password):
     try:
         response_data = recieve_message(conn)
 
-        if message["type"] == "REQUEST_PUBLIC_KEY":
+        if message["type"] == "SYNC_REVOKED":
+            try:
+                revoked_keys = response_data["message"]
+                print(f"Revoked keys received: {revoked_keys}")
+                merge_revoked_list(revoked_keys)
+            except Exception as e:
+                print(f"Failed to merge revoked keys: {e}")
+        
+        elif message["type"] == "REQUEST_PUBLIC_KEY":
             public_key = response_data["public_key"]
             uid = response_data["uid"]
             peer_name = response_data["name"]
@@ -492,6 +560,9 @@ def handle_response(conn, message, password):
 
         elif message["type"] == "SEND_FILE":
             print(response_data)
+        
+        elif message["type"] == "MIGRATION":
+            print(response_data)
 
         else:
             print(f"Unexpected response: {response_data}")
@@ -529,3 +600,66 @@ def get_public_key_by_uid(uid):
         if peer_info.get("uid") == uid:
             return peer_info.get("public_key")
     return None
+
+def revoke_certificate(password):
+    old_uid = get_uid()
+    with open("file_vault/client.crt", "rb") as f:
+        old_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+    old_public_key_bytes = old_cert.get_pubkey().to_cryptography_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    old_public_key_encoded = base64.b64encode(old_public_key_bytes).decode('utf-8')
+
+    decrypted_key_data = decrypt_file("file_vault/client.key.enc", password, 0)
+    old_private_key_obj = serialization.load_pem_private_key(decrypted_key_data, password=None)
+
+    generate_self_cert(password)
+    generate_uid()
+
+    new_uid = get_uid()
+    with open("file_vault/client.crt", "rb") as f:
+        new_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+    new_public_key_bytes = new_cert.get_pubkey().to_cryptography_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    new_public_key_encoded = base64.b64encode(new_public_key_bytes).decode('utf-8')
+
+    migration_data = {
+        "old_uid": old_uid,
+        "new_uid": new_uid,
+        "old_public_key": old_public_key_encoded,
+        "new_public_key": new_public_key_encoded,
+    }
+
+    migration_data_str = json.dumps(migration_data, sort_keys=True)
+
+    signature = old_private_key_obj.sign(migration_data_str.encode('utf-8'))
+    migration_data["signature"] = base64.b64encode(signature).decode('utf-8')
+
+    migration_message = {
+        "type": "MIGRATION",
+        "data": migration_data
+    }
+
+    if os.path.exists("peers.json"):
+        with open("peers.json", "r") as f:
+            trusted_peers = json.load(f)
+        
+        for peer_info in trusted_peers.values():
+            if is_revoked(peer_info):
+                print("Skipping revoked peer")
+                continue
+            try:
+                create_tls_connection(peer_info, password, migration_message)
+                print("Sent migration message to peer")
+            except Exception as e:
+                print(f"Failed to send migration message to {peer_info}: {e}")
+    else:
+        print("No peers found to send migration message to.")
+    
+    add_to_revoked_keys(old_uid, old_public_key_encoded)
+    revoke_entries_by_uid(old_uid)
+    print("Certificate revoked successfully.")
+         
