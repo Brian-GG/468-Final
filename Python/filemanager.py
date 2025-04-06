@@ -46,6 +46,11 @@ def create_data_files():
     if not os.path.exists(peer_file_db):
         with open(peer_file_db, "w") as f:
             json.dump({}, f)
+    
+    revoked_keys_db = "revoked.json"
+    if not os.path.exists(revoked_keys_db):
+        with open(revoked_keys_db, "w") as f:
+            json.dump({}, f)
 
 def import_files(password, need_path, input_file):
     if need_path == 1:
@@ -157,3 +162,98 @@ def read_peer_files():
     print("Peer Files:")
     for peer, files in peer_files.items():
         print(f"{peer}: {', '.join(files)}")
+
+def add_to_revoked_keys(uid, public_key_encoded):
+    if os.path.exists("revoked.json"):
+        with open("revoked.json", "r") as f:
+            revoked_keys = json.load(f)
+    else:
+        revoked_keys = {}
+    
+    revoked_keys[uid] = public_key_encoded
+    with open("revoked.json", "w") as f:
+        json.dump(revoked_keys, f, indent=4)
+
+def merge_revoked_list(peer_list):
+    if os.path.exists("revoked.json"):
+        with open("revoked.json", "r") as f:
+            revoked_keys = json.load(f)
+    else:
+        revoked_keys = {}
+    revoked_keys.update(peer_list)
+    with open("revoked.json", "w") as f:
+        json.dump(revoked_keys, f, indent=4)
+
+def is_revoked(peer):
+    if os.path.exists("revoked.json"):
+        with open("revoked.json", "r") as f:
+            revoked_keys = json.load(f)
+    
+    if peer.get("uid") in revoked_keys:
+        print(f"Peer {peer['uid']} is revoked.")
+        return True
+    revoked = revoked_keys.values()
+    if "public_key" in peer and peer["public_key"] in revoked:
+        print(f"Peer {peer['uid']} is revoked.")
+        return True
+    return False
+
+def revoke_entries_by_uid(uid):
+    filedb_path = "filedb.json"
+    if os.path.exists(filedb_path):
+        with open(filedb_path, "r") as f:
+            filedb = json.load(f)
+    else:
+        filedb = {}
+    
+    for filename in list(filedb.keys()):
+        entry = filedb[filename]
+        if entry.get("uid") == uid:
+            file_path = join("file_vault", filename)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    print(f"Deleted file: {file_path}")
+                except Exception as e:
+                    print(f"Error deleting {file_path}: {e}")
+            enc_file_path = file_path + ".enc"
+            if os.path.exists(enc_file_path):
+                try:
+                    os.remove(enc_file_path)
+                    print(f"Deleted encrypted file: {enc_file_path}")
+                except Exception as e:
+                    print(f"Error deleting {enc_file_path}: {e}")
+            del filedb[filename]
+    
+    with open(filedb_path, "w") as f:
+        json.dump(filedb, f, indent=4)
+
+    peerfiles_path = "peerfiles.json"
+    if os.path.exists(peerfiles_path):
+        with open(peerfiles_path, "r") as f:
+            peerfiles = json.load(f)
+        for peer_name in list(peerfiles.keys()):
+            files = peerfiles[peer_name]
+            for file_key in list(files.keys()):
+                if files[file_key].get("uid") == uid:
+                    del files[file_key]
+                    print(f"Removed file entry '{file_key}' for peer '{peer_name}'.")
+            if not files:
+                del peerfiles[peer_name]
+        with open(peerfiles_path, "w") as f:
+            json.dump(peerfiles, f, indent=4)
+    else:
+        print("peerfiles.json not found.")
+
+    peers_path = "peers.json"
+    if os.path.exists(peers_path):
+        with open(peers_path, "r") as f:
+            peers = json.load(f)
+        for peer_name in list(peers.keys()):
+            if peers[peer_name].get("uid") == uid:
+                del peers[peer_name]
+                print(f"Removed peer '{peer_name}' with uid {uid}.")
+        with open(peers_path, "w") as f:
+            json.dump(peers, f, indent=4)
+    else:
+        print("peers.json not found.")
