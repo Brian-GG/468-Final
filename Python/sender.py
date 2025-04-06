@@ -217,17 +217,17 @@ def handle_client_connection(conn, password):
         
         is_peer_trusted = False
 
-        client_cert = conn.get_certificate().get_pubkey().to_cryptography_key().public_bytes(
+        client_cert = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-        client_key_encoded = base64.b64encode(public_key_bytes).decode('utf-8')
-
+        client_key_encoded = base64.b64encode(client_cert).decode('utf-8')
         if os.path.exists("peers.json"):
             with open("peers.json", "r") as f:
                 trusted_peers = json.load(f)
             for peer in trusted_peers.values():
-                if peer["public_key"] == client_key_encoded:
+                keystr = peer["public_key"]
+                if keystr == client_key_encoded:
                     is_peer_trusted = True
                     break
         else:
@@ -240,11 +240,13 @@ def handle_client_connection(conn, password):
         print(req_type)
         
         if req_type == "REQUEST_PUBLIC_KEY":
-            public_key_bytes = conn.get_certificate().get_pubkey().to_cryptography_key().public_bytes(
+            with open("file_vault/client.crt", "rb") as f:
+                client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+            public_key = client_cert.get_pubkey().to_cryptography_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-            public_key_encoded = base64.b64encode(public_key_bytes).decode('utf-8')
+            public_key_encoded = base64.b64encode(public_key).decode('utf-8')
             uid = get_uid()
             service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
             hostname = socket.gethostname()
