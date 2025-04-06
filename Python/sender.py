@@ -85,14 +85,14 @@ def start_tls_server(password, stop_event):
         print(f"Error starting TLS server: {e}")
 
 
-def add_trusted_peer(peer):
+def add_trusted_peer(peer, password):
     try:
         if os.path.exists("peers.json"):
             with open("peers.json", "r") as f:
                 trusted_peers = json.load(f)
         else:
             trusted_peers = {}
-        get_peer_info(peer)
+        get_peer_info(peer, password)
     except Exception as e:
         print(f"Failed to add peer to trusted list: {e}")
 

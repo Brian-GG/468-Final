@@ -87,7 +87,7 @@ def joinNetwork(stop_event):
 
     return zeroconf
 
-def discover_peers(zeroconf):
+def discover_peers(zeroconf, password):
     
     if os.path.exists("peers.json"):
         with open("peers.json", "r") as f:
@@ -135,7 +135,7 @@ def discover_peers(zeroconf):
         print("Please verify the public key hash with the peer before proceeding.")
         confirm = input("Do you trust this peer? (yes/no): ").strip().lower()
         if confirm == "yes":
-            add_trusted_peer(selected_peer)
+            add_trusted_peer(selected_peer, password)
             print(f"Peer {selected_peer['name']} added to trusted peers.")
             return None
         else:
