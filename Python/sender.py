@@ -454,6 +454,7 @@ def handle_response(conn, message, password):
         if message["type"] == "SYNC_REVOKED":
             try:
                 revoked_keys = response_data["message"]
+                print(f"Revoked keys received: {revoked_keys}")
                 merge_revoked_list(revoked_keys)
             except Exception as e:
                 print(f"Failed to merge revoked keys: {e}")

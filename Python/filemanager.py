@@ -181,6 +181,7 @@ def merge_revoked_list(peer_list):
     else:
         revoked_keys = {}
     revoked_keys.update(peer_list)
+    print("Revoked keys merged successfully.")
     with open("revoked.json", "w") as f:
         json.dump(revoked_keys, f, indent=4)
 
