@@ -337,11 +337,12 @@ def handle_client_connection(conn, password):
                 decoded_hash = base64.urlsafe_b64decode(file_hash)
                 file_signature = base64.b64decode(request.get("data", {}).get("signature"))
                 if hashlib.sha256(file_data).hexdigest() == file_hash:
-                    public_key_pem = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    public_key = serialization.load_pem_public_key(public_key_pem)
+                    public_key_encoded = get_public_key_by_uid(uid)
+                    if public_key_encoded is None:
+                        response = {"message": "File Creator Not A Trusted Peer."}
+                        send_message(conn, response)
+                    public_key_bytes = base64.b64decode(public_key_encoded)
+                    public_key = serialization.load_pem_public_key(public_key_bytes)
                     print(type(public_key))
                     try:
                         public_key.verify(
@@ -446,14 +447,12 @@ def handle_response(conn, message, password):
                     print(f"file_signature type: {type(file_signature)}")
                     print(f"decoded_hash type: {type(decoded_hash)}")
                     print(f"File '{filename}' passed integrity check.")
-                    cert_pem_b64 = response_data["certificate"]
-                    cert_pem = base64.b64decode(cert_pem_b64)
-                    peer_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
-                    public_key_pem = peer_cert.get_pubkey().to_cryptography_key().public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    public_key = serialization.load_pem_public_key(public_key_pem)
+                    public_key_encoded = get_public_key_by_uid(uid)
+                    if public_key_encoded is None:
+                        response = {"message": "File Creator Not A Trusted Peer."}
+                        send_message(conn, response)
+                    public_key_bytes = base64.b64decode(public_key_encoded)
+                    public_key = serialization.load_pem_public_key(public_key_bytes)
                     print(type(public_key))
                     try:
                         public_key.verify(
@@ -522,3 +521,11 @@ def recieve_data(conn, length):
             return None
         data += chunk
     return data
+
+def get_public_key_by_uid(uid):
+    with open("peers.json", "r") as f:
+        peers = json.load(f)
+    for peer_info in peers.values():
+        if peer_info.get("uid") == uid:
+            return peer_info.get("public_key")
+    return None
