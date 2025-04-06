@@ -222,7 +222,7 @@ def handle_client_connection(conn, password):
         req_type = request.get("type")
         print(req_type)
         
-        if req_type is "REQUEST_PUBLIC_KEY":
+        if req_type == "REQUEST_PUBLIC_KEY":
             public_key_bytes = conn.get_certificate().get_pubkey().to_cryptography_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -384,7 +384,7 @@ def handle_response(conn, message, password):
                     json.dump(trusted_peers, f, indent=4)
             except Exception as e:
                 print(f"Failed to save peer info: {e}")
-                
+
         if message["type"] == "LIST_FILES":
             print("Available files:")
             print(response_data["files"])
