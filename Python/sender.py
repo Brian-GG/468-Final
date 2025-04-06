@@ -226,7 +226,8 @@ def handle_client_connection(conn, password):
             public_key_encoded = base64.b64encode(public_key_bytes).decode('utf-8')
             uid = get_uid()
             service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
-            adddress = conn.getpeername()
+            hostname = socket.gethostname()
+            adddress = socket.gethostbyname(hostname)
             response = {
                     "public_key": public_key_encoded,
                     "uid": uid,
@@ -377,17 +378,17 @@ def handle_response(conn, message, password):
             except Exception as e:
                 print(f"Failed to save peer info: {e}")
 
-        if message["type"] == "LIST_FILES":
+        elif message["type"] == "LIST_FILES":
             print("Available files:")
             print(response_data["files"])
-            peer_name = message.get("name", "Unknown Peer")
+            peer_name = response_data["name"]
             if os.path.exists("peerfiles.json"):
                 with open("peerfiles.json", "r") as f:
                     peer_files = json.load(f)
             else:
                 peer_files = {}
 
-            peer_files[peer_name] = response_data
+            peer_files[peer_name] = response_data["files"]
 
             with open("peerfiles.json", "w") as f:
                 json.dump(peer_files, f, indent=4)
