@@ -87,7 +87,7 @@ def joinNetwork(stop_event):
 
     return zeroconf
 
-def discover_peers(zeroconf):
+def discover_peers(zeroconf, password):
     
     if os.path.exists("peers.json"):
         with open("peers.json", "r") as f:
@@ -108,21 +108,22 @@ def discover_peers(zeroconf):
             return
         if info and info.port == target_port:
             addresses = [addr for addr in info.parsed_scoped_addresses()]
+            first_address = addresses[0] if addresses else None
             public_key_hash = info.properties.get(b"public_key_hash")
             if public_key_hash:
                 public_key_hash = public_key_hash.decode()
                 print(f"logging hash: {public_key_hash}")
             peer_info = {
                 "name": service,
-                "addresses": addresses,
+                "address": first_address,
                 "public_key_hash": public_key_hash,
             }
             
-            if peer_info["addresses"][0] in trusted_peers:
+            if peer_info["address"][0] in trusted_peers:
                 print(f"Peer {peer_info['name']} is already trusted.")
                 continue
             discovered_peers.append(peer_info)
-            print(f"{len(discovered_peers)}. Hostname: {peer_info['name']}, Address: {peer_info['addresses']}, Public Key Hash: {peer_info['public_key_hash']}")
+            print(f"{len(discovered_peers)}. Hostname: {peer_info['name']}, Address: {peer_info['address']}, Public Key Hash: {peer_info['public_key_hash']}")
     if not discovered_peers:
         print("No peers discovered.")
         return None
@@ -130,12 +131,12 @@ def discover_peers(zeroconf):
     choice = input("\nEnter the number of the peer you wish to connect to: ")
     if choice.isdigit() and 1 <= int(choice) <= len(discovered_peers):
         selected_peer = discovered_peers[int(choice) - 1]
-        print(f"\nYou selected: {selected_peer['name']} ({selected_peer['addresses']})")
+        print(f"\nYou selected: {selected_peer['name']} ({selected_peer['address']})")
         print(f"Peer's Public Key Hash: {selected_peer['public_key_hash']}\n")
         print("Please verify the public key hash with the peer before proceeding.")
         confirm = input("Do you trust this peer? (yes/no): ").strip().lower()
         if confirm == "yes":
-            add_trusted_peer(selected_peer)
+            add_trusted_peer(selected_peer, password)
             print(f"Peer {selected_peer['name']} added to trusted peers.")
             return None
         else:

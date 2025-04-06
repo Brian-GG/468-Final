@@ -38,7 +38,7 @@ def main():
             elif action == "4":
                 export_file(password)
             elif action == "5":
-                discover_peers(zeroconf)
+                discover_peers(zeroconf, password)
             elif action == "6":
                 stop_event.set()
                 exit()

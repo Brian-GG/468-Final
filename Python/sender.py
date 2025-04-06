@@ -5,6 +5,7 @@ import json
 import threading
 import os
 import hashlib
+import struct
 from encryption import *
 from filemanager import *
 
@@ -25,15 +26,14 @@ def create_tls_connection(peer, password, message):
         context.load_verify_locations("file_vault/ca.crt")
         context.set_verify(SSL.VERIFY_PEER, lambda conn, cert, errno, depth, ok: ok)
 
-        address = peer["address"][0], 3000
+        address = peer["address"], 3000
         sock = socket.create_connection(address)
         conn = SSL.Connection(context, sock)
         conn.set_connect_state()
         conn.do_handshake()
 
-        conn.send(json.dumps(message).encode())
-        response = conn.recv(4096).decode()
-        handle_response(response, message, password)
+        send_message(conn, message)
+        handle_response(conn, message, password)
         conn.close()
 
     except Exception as e:
@@ -70,10 +70,6 @@ def start_tls_server(password, stop_event):
                 public_key = client_cert.get_pubkey()
                 public_key_pem = crypto.dump_publickey(crypto.FILETYPE_PEM, public_key)
                 peers_hash = hashlib.sha256(public_key_pem).hexdigest()
-                if peers_hash not in [peer["public_key_hash"] for peer in trusted_peers.values()]:
-                    print("Untrusted peer! Closing connection.")
-                    conn.close()
-                    continue
                 print("handling connection")
                 handle_client_connection(conn, password)
 
@@ -85,22 +81,14 @@ def start_tls_server(password, stop_event):
         print(f"Error starting TLS server: {e}")
 
 
-def add_trusted_peer(peer):
+def add_trusted_peer(peer, password):
     try:
         if os.path.exists("peers.json"):
             with open("peers.json", "r") as f:
                 trusted_peers = json.load(f)
         else:
             trusted_peers = {}
-
-        trusted_peers[peer["name"]] = {
-            "name": peer["name"],
-            "address": peer["addresses"],
-            "public_key_hash": peer["public_key_hash"],
-        }
-
-        with open("peers.json", "w") as f:
-            json.dump(trusted_peers, f, indent=4)
+        get_peer_info(peer, password)
     except Exception as e:
         print(f"Failed to add peer to trusted list: {e}")
 
@@ -148,7 +136,7 @@ def list_available_files():
     if os.path.exists("filedb.json"):
         with open("filedb.json", "r") as f:
             files = json.load(f)
-            return list(files.keys())
+            return files
     return []
 
 def request_file(peer, password, filename):
@@ -216,18 +204,77 @@ def send_file(peer, password, filename):
     else:
         print("File not found")
 
+def get_peer_info(peer, password):
+    try:
+        message = {"type": "REQUEST_PUBLIC_KEY", "data": {}}
+        create_tls_connection(peer, password, message)
+    except Exception as e:
+        print(f"Failed to retrieve public key from {peer['name']}: {e}")
+        return None
+
 def handle_client_connection(conn, password):
     try:
-        data = conn.recv(4096).decode()
-        request = json.loads(data)
+        
+        is_peer_trusted = False
+
+        client_cert = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+        client_key_encoded = base64.b64encode(client_cert).decode('utf-8')
+        if os.path.exists("peers.json"):
+            with open("peers.json", "r") as f:
+                trusted_peers = json.load(f)
+            for peer in trusted_peers.values():
+                keystr = peer["public_key"]
+                if keystr == client_key_encoded:
+                    is_peer_trusted = True
+                    break
+        else:
+            trusted_peers = {}
+        
+
+
+        request = recieve_message(conn)
         req_type = request.get("type")
         print(req_type)
         
-        if req_type == "LIST_FILES":
-            response = list_available_files()
-            conn.send(json.dumps(response).encode())
+        if req_type == "REQUEST_PUBLIC_KEY":
+            with open("file_vault/client.crt", "rb") as f:
+                client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+            public_key = client_cert.get_pubkey().to_cryptography_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            public_key_encoded = base64.b64encode(public_key).decode('utf-8')
+            uid = get_uid()
+            service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
+            hostname = socket.gethostname()
+            adddress = socket.gethostbyname(hostname)
+            response = {
+                    "public_key": public_key_encoded,
+                    "uid": uid,
+                    "name": service_name,
+                    "address": adddress
+                }
+            send_message(conn, response)
+
+        elif req_type == "LIST_FILES":
+            if not is_peer_trusted:
+                print("Peer is not trusted. Cannot list files.")
+                conn.close()
+                return
+            
+            service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
+            response = {"name": service_name, "files": list_available_files()}
+            send_message(conn, response)
 
         elif req_type == "REQUEST_FILE":
+            if not is_peer_trusted:
+                print("Peer is not trusted. Cannot list files.")
+                conn.close()
+                return
+            
             filename = request.get("data", {}).get("filename")
             tmp_filename = filename + ".enc"
             file_path = os.path.join("file_vault", tmp_filename)
@@ -245,10 +292,12 @@ def handle_client_connection(conn, password):
                             file_signature = filedb[filename]["signature"]
                             uid = filedb[filename]["uid"]
                         else:
-                            conn.send(json.dumps({"message": "File not found in database."}).encode())
+                            response = {"message": "File not found in database."}
+                            send_message(conn, response)
                             return
                     else:
-                        conn.send(json.dumps({"message": "File database not found."}).encode())
+                        response = {"message": "File database not found."}
+                        send_message(conn, response)
                         return
 
                     with open("file_vault/client.crt", "rb") as f:
@@ -263,29 +312,37 @@ def handle_client_connection(conn, password):
                         "uid": uid,
                         "certificate": encoded_cert
                     }
-                    conn.send(json.dumps(response).encode())
+                    send_message(conn, response)
                 else:
-                    conn.send(json.dumps({"message": "File transfer declined."}).encode())
+                    response = {"message": "File transfer declined."}
+                    send_message(conn, response)
             else:
-                conn.send(json.dumps({"message": "File not found."}).encode())
+                response = {"message": "File not found."}
+                send_message(conn, response)
 
         elif req_type == "SEND_FILE":
+            if not is_peer_trusted:
+                print("Peer is not trusted. Cannot list files.")
+                conn.close()
+                return
+
             filename = request.get("data", {}).get("filename")
             consent = input(f"Accept file {filename}? (yes/no): ")
             if consent.lower() == "yes":
-                conn.send(json.dumps({"message": "File transfer accepted."}).encode())
+                response = {"message": "File transfer accepted."}
+                send_message(conn, response)
                 file_data = bytes.fromhex(request.get("data", {}).get("file_data"))
                 file_hash = request.get("data", {}).get("hash")
                 uid = request.get("data", {}).get("uid")
                 decoded_hash = base64.urlsafe_b64decode(file_hash)
                 file_signature = base64.b64decode(request.get("data", {}).get("signature"))
-
-                if hashlib.sha256(file_data).digest() == decoded_hash:
-                    public_key_pem = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    public_key = serialization.load_pem_public_key(public_key_pem)
+                if hashlib.sha256(file_data).hexdigest() == file_hash:
+                    public_key_encoded = get_public_key_by_uid(uid)
+                    if public_key_encoded is None:
+                        response = {"message": "File Creator Not A Trusted Peer."}
+                        send_message(conn, response)
+                    public_key_bytes = base64.b64decode(public_key_encoded)
+                    public_key = serialization.load_pem_public_key(public_key_bytes)
                     print(type(public_key))
                     try:
                         public_key.verify(
@@ -298,7 +355,6 @@ def handle_client_connection(conn, password):
 
                         # Encrypt the file
                         encrypt_file(file_path, password)
-
                         # Add file info to filedb.json
                         if os.path.exists("filedb.json"):
                             with open("filedb.json", "r") as f:
@@ -311,40 +367,67 @@ def handle_client_connection(conn, password):
                             "hash": file_hash,
                             "signature": base64.b64encode(file_signature).decode('utf-8'),
                         }
-
                         with open("filedb.json", "w") as f:
                             json.dump(filedb, f, indent=4)
-
                         print(f"File '{filename}' saved, encrypted, and added to filedb.json.")
                     except Exception as e:
                         print(f"Signature verification failed: {e}")
-                        conn.send(json.dumps({"message": "Signature verification failed. Transfer failed."}).encode())
+                        response = {"message": "Signature verification failed. Transfer failed."}
+                        send_message(conn, response)
                 else:
-                    conn.send(json.dumps({"message": "Integrity check failed. Transfer failed."}).encode())
+                    print("File hash mismatch! transfer failed.")
+                    response = {"message": "Integrity check failed. Transfer failed."}
+                    send_message(conn, response)
             else:
-                conn.send(json.dumps({"message": "File transfer declined."}).encode())
+                response = {"message": "File transfer declined."}
+                send_message(conn, response)
 
         conn.close()
     except Exception as e:
         print(f"Error handling client connection: {e}")
         conn.close()
 
-def handle_response(response, message, password):
+def handle_response(conn, message, password):
     try:
-        response_data = json.loads(response)
+        response_data = recieve_message(conn)
 
-        if message["type"] == "LIST_FILES":
+        if message["type"] == "REQUEST_PUBLIC_KEY":
+            public_key = response_data["public_key"]
+            uid = response_data["uid"]
+            peer_name = response_data["name"]
+            peer_address = response_data["address"]
+            print(f"Peer info recieived from {peer_name}:")
+
+            try:
+                if os.path.exists("peers.json"):
+                    with open("peers.json", "r") as f:
+                        trusted_peers = json.load(f)
+                else:
+                    trusted_peers = {}
+
+                trusted_peers[peer_name] = {
+                    "name": peer_name,
+                    "address": peer_address,
+                    "public_key": public_key,
+                    "uid": uid,
+                }    
+                
+                with open("peers.json", "w") as f:
+                    json.dump(trusted_peers, f, indent=4)
+            except Exception as e:
+                print(f"Failed to save peer info: {e}")
+
+        elif message["type"] == "LIST_FILES":
             print("Available files:")
-            for file in response_data:
-                print(f"- {file}")
-            peer_name = message.get("peer_name", "Unknown Peer")
+            print(response_data["files"])
+            peer_name = response_data["name"]
             if os.path.exists("peerfiles.json"):
                 with open("peerfiles.json", "r") as f:
                     peer_files = json.load(f)
             else:
                 peer_files = {}
 
-            peer_files[peer_name] = response_data
+            peer_files[peer_name] = response_data["files"]
 
             with open("peerfiles.json", "w") as f:
                 json.dump(peer_files, f, indent=4)
@@ -360,18 +443,16 @@ def handle_response(response, message, password):
                 file_signature = base64.b64decode(response_data["signature"])
                 uid = response_data["uid"]
 
-                if hashlib.sha256(file_data).digest() == decoded_hash:
+                if hashlib.sha256(file_data).hexdigest() == file_hash:
                     print(f"file_signature type: {type(file_signature)}")
                     print(f"decoded_hash type: {type(decoded_hash)}")
                     print(f"File '{filename}' passed integrity check.")
-                    cert_pem_b64 = response_data.get("certificate")
-                    cert_pem = base64.b64decode(cert_pem_b64)
-                    peer_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
-                    public_key_pem = peer_cert.get_pubkey().to_cryptography_key().public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    public_key = serialization.load_pem_public_key(public_key_pem)
+                    public_key_encoded = get_public_key_by_uid(uid)
+                    if public_key_encoded is None:
+                        response = {"message": "File Creator Not A Trusted Peer."}
+                        send_message(conn, response)
+                    public_key_bytes = base64.b64decode(public_key_encoded)
+                    public_key = serialization.load_pem_public_key(public_key_bytes)
                     print(type(public_key))
                     try:
                         public_key.verify(
@@ -410,10 +491,41 @@ def handle_response(response, message, password):
                 print("File transfer declined or failed.")
 
         elif message["type"] == "SEND_FILE":
-            print(response)
+            print(response_data)
 
         else:
-            print(f"Unexpected response: {response}")
+            print(f"Unexpected response: {response_data}")
 
     except json.JSONDecodeError:
-        print(f"Invalid response received: {response}")
+        print(f"Invalid response received: {response_data}")
+
+def send_message(conn, message):
+    message_encoded = json.dumps(message).encode()
+    header = struct.pack("!I", len(message_encoded))
+    conn.sendall(header + message_encoded)
+    return
+
+def recieve_message(conn):
+    header = recieve_data(conn, 4)
+    if not header:
+        return None
+    message_length = struct.unpack("!I", header)[0]
+    message_encoded = recieve_data(conn, message_length)
+    return json.loads(message_encoded.decode('utf-8'))
+
+def recieve_data(conn, length):
+    data = b""
+    while len(data) < length:
+        chunk = conn.recv(length - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+def get_public_key_by_uid(uid):
+    with open("peers.json", "r") as f:
+        peers = json.load(f)
+    for peer_info in peers.values():
+        if peer_info.get("uid") == uid:
+            return peer_info.get("public_key")
+    return None
