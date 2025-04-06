@@ -108,13 +108,14 @@ def discover_peers(zeroconf, password):
             return
         if info and info.port == target_port:
             addresses = [addr for addr in info.parsed_scoped_addresses()]
+            first_address = addresses[0] if addresses else None
             public_key_hash = info.properties.get(b"public_key_hash")
             if public_key_hash:
                 public_key_hash = public_key_hash.decode()
                 print(f"logging hash: {public_key_hash}")
             peer_info = {
                 "name": service,
-                "address": addresses,
+                "address": first_address,
                 "public_key_hash": public_key_hash,
             }
             

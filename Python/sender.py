@@ -26,7 +26,7 @@ def create_tls_connection(peer, password, message):
         context.load_verify_locations("file_vault/ca.crt")
         context.set_verify(SSL.VERIFY_PEER, lambda conn, cert, errno, depth, ok: ok)
 
-        address = peer["address"][0], 3000
+        address = peer["address"], 3000
         sock = socket.create_connection(address)
         conn = SSL.Connection(context, sock)
         conn.set_connect_state()
@@ -217,16 +217,17 @@ def handle_client_connection(conn, password):
         
         is_peer_trusted = False
 
-        client_cert = conn.get_peer_certificate()
-        client_public_key = client_cert.get_pubkey()
-        client_public_key_pem = crypto.dump_publickey(crypto.FILETYPE_PEM, client_public_key)
-        client_key_b64 = base64.b64encode(client_public_key_pem).decode('utf-8')
+        client_cert = conn.get_certificate().get_pubkey().to_cryptography_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+        client_key_encoded = base64.b64encode(public_key_bytes).decode('utf-8')
 
         if os.path.exists("peers.json"):
             with open("peers.json", "r") as f:
                 trusted_peers = json.load(f)
             for peer in trusted_peers.values():
-                if peer["public_key"] == client_key_b64:
+                if peer["public_key"] == client_key_encoded:
                     is_peer_trusted = True
                     break
         else:
