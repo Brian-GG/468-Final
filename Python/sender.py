@@ -26,7 +26,7 @@ def create_tls_connection(peer, password, message):
         context.load_verify_locations("file_vault/ca.crt")
         context.set_verify(SSL.VERIFY_PEER, lambda conn, cert, errno, depth, ok: ok)
 
-        address = peer["address"], 3000
+        address = peer["address"][0], 3000
         sock = socket.create_connection(address)
         conn = SSL.Connection(context, sock)
         conn.set_connect_state()
