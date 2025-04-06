@@ -228,7 +228,7 @@ def handle_client_connection(conn, password):
             service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
             adddress = conn.getpeername()
             response = {
-                "type": "PUBLIC_KEY",
+                "type": "REQUEST_PUBLIC_KEY",
                     "data": {
                     "public_key": public_key_encoded,
                     "uid": uid,
@@ -371,7 +371,6 @@ def handle_response(conn, message, password):
                 trusted_peers[peer_name] = {
                     "name": peer_name,
                     "address": peer_address,
-                    "public_key_hash": public_key,
                     "public_key": public_key,
                     "uid": uid,
                 }    
