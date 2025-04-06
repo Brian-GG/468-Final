@@ -122,7 +122,7 @@ def discover_peers(zeroconf, password):
                 print(f"Peer {peer_info['name']} is already trusted.")
                 continue
             discovered_peers.append(peer_info)
-            print(f"{len(discovered_peers)}. Hostname: {peer_info['name']}, Address: {peer_info['addresses']}, Public Key Hash: {peer_info['public_key_hash']}")
+            print(f"{len(discovered_peers)}. Hostname: {peer_info['name']}, Address: {peer_info['address']}, Public Key Hash: {peer_info['public_key_hash']}")
     if not discovered_peers:
         print("No peers discovered.")
         return None
