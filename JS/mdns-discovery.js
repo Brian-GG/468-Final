@@ -1,7 +1,6 @@
 const { readConfig } = require('./state');
-const { resolveHostnameToIP } = require('./utils');
-const bonjour = require('bonjour')();
-
+const { Bonjour} = require('bonjour-service');
+const bonjour = new Bonjour();
 let activeService = null;
 let activeBrowser = null;
 
@@ -22,7 +21,7 @@ module.exports = {
 
         const serviceName = name || config.serviceName;
 
-        activeService = bonjour.publish({ name: serviceName, type: '_secureshare._tcp.local.', port, protocol: 'tcp' });
+        activeService = bonjour.publish({ name: config.serviceName, type: 'secureshare', port });
 
         return serviceName;
     },
