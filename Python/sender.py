@@ -283,8 +283,7 @@ def handle_client_connection(conn, password):
                 uid = request.get("data", {}).get("uid")
                 decoded_hash = base64.urlsafe_b64decode(file_hash)
                 file_signature = base64.b64decode(request.get("data", {}).get("signature"))
-
-                if hashlib.sha256(file_data).digest() == decoded_hash:
+                if hashlib.sha256(file_data).hexdigest() == file_hash:
                     public_key_pem = conn.get_peer_certificate().get_pubkey().to_cryptography_key().public_bytes(
                         encoding=serialization.Encoding.PEM,
                         format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -302,7 +301,6 @@ def handle_client_connection(conn, password):
 
                         # Encrypt the file
                         encrypt_file(file_path, password)
-
                         # Add file info to filedb.json
                         if os.path.exists("filedb.json"):
                             with open("filedb.json", "r") as f:
@@ -315,16 +313,15 @@ def handle_client_connection(conn, password):
                             "hash": file_hash,
                             "signature": base64.b64encode(file_signature).decode('utf-8'),
                         }
-
                         with open("filedb.json", "w") as f:
                             json.dump(filedb, f, indent=4)
-
                         print(f"File '{filename}' saved, encrypted, and added to filedb.json.")
                     except Exception as e:
                         print(f"Signature verification failed: {e}")
                         response = {"message": "Signature verification failed. Transfer failed."}
                         send_message(conn, response)
                 else:
+                    print("File hash mismatch! transfer failed.")
                     response = {"message": "Integrity check failed. Transfer failed."}
                     send_message(conn, response)
             else:
@@ -367,7 +364,7 @@ def handle_response(conn, message, password):
                 file_signature = base64.b64decode(response_data["signature"])
                 uid = response_data["uid"]
 
-                if hashlib.sha256(file_data).digest() == decoded_hash:
+                if hashlib.sha256(file_data).hexdigest() == file_hash:
                     print(f"file_signature type: {type(file_signature)}")
                     print(f"decoded_hash type: {type(decoded_hash)}")
                     print(f"File '{filename}' passed integrity check.")
@@ -429,6 +426,7 @@ def send_message(conn, message):
     message_encoded = json.dumps(message).encode()
     header = struct.pack("!I", len(message_encoded))
     conn.sendall(header + message_encoded)
+    return
 
 def recieve_message(conn):
     header = recieve_data(conn, 4)
