@@ -206,7 +206,8 @@ def send_file(peer, password, filename):
 
 def get_peer_info(peer, password):
     try:
-        message = {"type": "REQUEST_PUBLIC_KEY", "data": {}}
+        service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
+        message = {"type": "PEER_CONNECTED", "data": { "peerName": f"{service_name}" }}
         create_tls_connection(peer, password, message)
     except Exception as e:
         print(f"Failed to retrieve public key from {peer['name']}: {e}")
@@ -239,7 +240,7 @@ def handle_client_connection(conn, password):
         req_type = request.get("type")
         print(req_type)
         
-        if req_type == "REQUEST_PUBLIC_KEY":
+        if req_type == "PEER_CONNECTED":
             with open("file_vault/client.crt", "rb") as f:
                 client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
             public_key = client_cert.get_pubkey().to_cryptography_key().public_bytes(
@@ -390,7 +391,6 @@ def handle_client_connection(conn, password):
 def handle_response(conn, message, password):
     try:
         response_data = recieve_message(conn)
-
         if message["type"] == "REQUEST_PUBLIC_KEY":
             public_key = response_data["public_key"]
             uid = response_data["uid"]
