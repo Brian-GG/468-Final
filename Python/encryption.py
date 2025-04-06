@@ -13,6 +13,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from datetime import datetime, timedelta
+import socket
+import ipaddress
 
 CERT_DIR = "file_vault"
 
@@ -130,6 +132,11 @@ def create_server_cert(ip, ca_key, ca_cert):
     key = ed25519.Ed25519PrivateKey.generate()
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, ip)])
 
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    local_ip = s.getsockname()[0]
+    s.close()
+
     cert = x509.CertificateBuilder() \
         .subject_name(subject) \
         .issuer_name(ca_cert.subject) \
@@ -137,7 +144,10 @@ def create_server_cert(ip, ca_key, ca_cert):
         .serial_number(x509.random_serial_number()) \
         .not_valid_before(datetime.utcnow()) \
         .not_valid_after(datetime.utcnow() + timedelta(days=365)) \
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(ip)]), critical=False) \
+        .add_extension(x509.SubjectAlternativeName([
+            x509.DNSName(ip),
+            x509.IPAddress(ipaddress.IPv4Address(local_ip))  # Add the local IP address as an alternative name
+        ]), critical=False) \
         .sign(private_key=ca_key, algorithm=None)
 
     save_key(key, "server.key")
