@@ -26,7 +26,7 @@ def create_tls_connection(peer, password, message):
         context.load_verify_locations("file_vault/ca.crt")
         context.set_verify(SSL.VERIFY_PEER, lambda conn, cert, errno, depth, ok: ok)
 
-        address = peer["address"][0], 3000
+        address = peer["address"], 3000
         sock = socket.create_connection(address)
         conn = SSL.Connection(context, sock)
         conn.set_connect_state()
@@ -214,6 +214,26 @@ def get_peer_info(peer, password):
 
 def handle_client_connection(conn, password):
     try:
+        
+        is_peer_trusted = False
+
+        client_cert = conn.get_peer_certificate()
+        client_public_key = client_cert.get_pubkey()
+        client_public_key_pem = crypto.dump_publickey(crypto.FILETYPE_PEM, client_public_key)
+        client_key_b64 = base64.b64encode(client_public_key_pem).decode('utf-8')
+
+        if os.path.exists("peers.json"):
+            with open("peers.json", "r") as f:
+                trusted_peers = json.load(f)
+            for peer in trusted_peers.values():
+                if peer["public_key"] == client_key_b64:
+                    is_peer_trusted = True
+                    break
+        else:
+            trusted_peers = {}
+        
+
+
         request = recieve_message(conn)
         req_type = request.get("type")
         print(req_type)
@@ -237,11 +257,21 @@ def handle_client_connection(conn, password):
             send_message(conn, response)
 
         elif req_type == "LIST_FILES":
+            if not is_peer_trusted:
+                print("Peer is not trusted. Cannot list files.")
+                conn.close()
+                return
+            
             service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
             response = {"name": service_name, "files": list_available_files()}
             send_message(conn, response)
 
         elif req_type == "REQUEST_FILE":
+            if not is_peer_trusted:
+                print("Peer is not trusted. Cannot list files.")
+                conn.close()
+                return
+            
             filename = request.get("data", {}).get("filename")
             tmp_filename = filename + ".enc"
             file_path = os.path.join("file_vault", tmp_filename)
@@ -288,6 +318,11 @@ def handle_client_connection(conn, password):
                 send_message(conn, response)
 
         elif req_type == "SEND_FILE":
+            if not is_peer_trusted:
+                print("Peer is not trusted. Cannot list files.")
+                conn.close()
+                return
+
             filename = request.get("data", {}).get("filename")
             consent = input(f"Accept file {filename}? (yes/no): ")
             if consent.lower() == "yes":
