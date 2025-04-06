@@ -114,11 +114,11 @@ def discover_peers(zeroconf, password):
                 print(f"logging hash: {public_key_hash}")
             peer_info = {
                 "name": service,
-                "addresses": addresses,
+                "address": addresses,
                 "public_key_hash": public_key_hash,
             }
             
-            if peer_info["addresses"][0] in trusted_peers:
+            if peer_info["address"][0] in trusted_peers:
                 print(f"Peer {peer_info['name']} is already trusted.")
                 continue
             discovered_peers.append(peer_info)
@@ -130,7 +130,7 @@ def discover_peers(zeroconf, password):
     choice = input("\nEnter the number of the peer you wish to connect to: ")
     if choice.isdigit() and 1 <= int(choice) <= len(discovered_peers):
         selected_peer = discovered_peers[int(choice) - 1]
-        print(f"\nYou selected: {selected_peer['name']} ({selected_peer['addresses']})")
+        print(f"\nYou selected: {selected_peer['name']} ({selected_peer['address']})")
         print(f"Peer's Public Key Hash: {selected_peer['public_key_hash']}\n")
         print("Please verify the public key hash with the peer before proceeding.")
         confirm = input("Do you trust this peer? (yes/no): ").strip().lower()
