@@ -5,6 +5,7 @@ import json
 import threading
 import os
 import hashlib
+import struct
 from encryption import *
 from filemanager import *
 
@@ -31,9 +32,8 @@ def create_tls_connection(peer, password, message):
         conn.set_connect_state()
         conn.do_handshake()
 
-        conn.send(json.dumps(message).encode())
-        response = conn.recv(4096).decode()
-        handle_response(response, message, password)
+        send_message(conn, message)
+        handle_response(conn, message, password)
         conn.close()
 
     except Exception as e:
@@ -218,14 +218,13 @@ def send_file(peer, password, filename):
 
 def handle_client_connection(conn, password):
     try:
-        data = conn.recv(4096).decode()
-        request = json.loads(data)
+        request = recieve_message(conn)
         req_type = request.get("type")
         print(req_type)
         
         if req_type == "LIST_FILES":
             response = list_available_files()
-            conn.send(json.dumps(response).encode())
+            send_message(conn, response)
 
         elif req_type == "REQUEST_FILE":
             filename = request.get("data", {}).get("filename")
@@ -245,10 +244,12 @@ def handle_client_connection(conn, password):
                             file_signature = filedb[filename]["signature"]
                             uid = filedb[filename]["uid"]
                         else:
-                            conn.send(json.dumps({"message": "File not found in database."}).encode())
+                            response = {"message": "File not found in database."}
+                            send_message(conn, response)
                             return
                     else:
-                        conn.send(json.dumps({"message": "File database not found."}).encode())
+                        response = {"message": "File database not found."}
+                        send_message(conn, response)
                         return
 
                     with open("file_vault/client.crt", "rb") as f:
@@ -263,17 +264,20 @@ def handle_client_connection(conn, password):
                         "uid": uid,
                         "certificate": encoded_cert
                     }
-                    conn.send(json.dumps(response).encode())
+                    send_message(conn, response)
                 else:
-                    conn.send(json.dumps({"message": "File transfer declined."}).encode())
+                    response = {"message": "File transfer declined."}
+                    send_message(conn, response)
             else:
-                conn.send(json.dumps({"message": "File not found."}).encode())
+                response = {"message": "File not found."}
+                send_message(conn, response)
 
         elif req_type == "SEND_FILE":
             filename = request.get("data", {}).get("filename")
             consent = input(f"Accept file {filename}? (yes/no): ")
             if consent.lower() == "yes":
-                conn.send(json.dumps({"message": "File transfer accepted."}).encode())
+                response = {"message": "File transfer accepted."}
+                send_message(conn, response)
                 file_data = bytes.fromhex(request.get("data", {}).get("file_data"))
                 file_hash = request.get("data", {}).get("hash")
                 uid = request.get("data", {}).get("uid")
@@ -318,20 +322,23 @@ def handle_client_connection(conn, password):
                         print(f"File '{filename}' saved, encrypted, and added to filedb.json.")
                     except Exception as e:
                         print(f"Signature verification failed: {e}")
-                        conn.send(json.dumps({"message": "Signature verification failed. Transfer failed."}).encode())
+                        response = {"message": "Signature verification failed. Transfer failed."}
+                        send_message(conn, response)
                 else:
-                    conn.send(json.dumps({"message": "Integrity check failed. Transfer failed."}).encode())
+                    response = {"message": "Integrity check failed. Transfer failed."}
+                    send_message(conn, response)
             else:
-                conn.send(json.dumps({"message": "File transfer declined."}).encode())
+                response = {"message": "File transfer declined."}
+                send_message(conn, response)
 
         conn.close()
     except Exception as e:
         print(f"Error handling client connection: {e}")
         conn.close()
 
-def handle_response(response, message, password):
+def handle_response(conn, message, password):
     try:
-        response_data = json.loads(response)
+        response_data = recieve_message(conn)
 
         if message["type"] == "LIST_FILES":
             print("Available files:")
@@ -364,7 +371,7 @@ def handle_response(response, message, password):
                     print(f"file_signature type: {type(file_signature)}")
                     print(f"decoded_hash type: {type(decoded_hash)}")
                     print(f"File '{filename}' passed integrity check.")
-                    cert_pem_b64 = response_data.get("certificate")
+                    cert_pem_b64 = response_data["certificate"]
                     cert_pem = base64.b64decode(cert_pem_b64)
                     peer_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_pem)
                     public_key_pem = peer_cert.get_pubkey().to_cryptography_key().public_bytes(
@@ -410,10 +417,32 @@ def handle_response(response, message, password):
                 print("File transfer declined or failed.")
 
         elif message["type"] == "SEND_FILE":
-            print(response)
+            print(response_data)
 
         else:
-            print(f"Unexpected response: {response}")
+            print(f"Unexpected response: {response_data}")
 
     except json.JSONDecodeError:
-        print(f"Invalid response received: {response}")
+        print(f"Invalid response received: {response_data}")
+
+def send_message(conn, message):
+    message_encoded = json.dumps(message).encode()
+    header = struct.pack("!I", len(message_encoded))
+    conn.sendall(header + message_encoded)
+
+def recieve_message(conn):
+    header = recieve_data(conn, 4)
+    if not header:
+        return None
+    message_length = struct.unpack("!I", header)[0]
+    message_encoded = recieve_data(conn, message_length)
+    return json.loads(message_encoded.decode('utf-8'))
+
+def recieve_data(conn, length):
+    data = b""
+    while len(data) < length:
+        chunk = conn.recv(length - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
