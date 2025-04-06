@@ -92,15 +92,7 @@ def add_trusted_peer(peer):
                 trusted_peers = json.load(f)
         else:
             trusted_peers = {}
-
-        trusted_peers[peer["name"]] = {
-            "name": peer["name"],
-            "address": peer["addresses"],
-            "public_key_hash": peer["public_key_hash"],
-        }
-
-        with open("peers.json", "w") as f:
-            json.dump(trusted_peers, f, indent=4)
+        get_peer_info(peer)
     except Exception as e:
         print(f"Failed to add peer to trusted list: {e}")
 
@@ -148,7 +140,7 @@ def list_available_files():
     if os.path.exists("filedb.json"):
         with open("filedb.json", "r") as f:
             files = json.load(f)
-            return list(files.keys())
+            return files
     return []
 
 def request_file(peer, password, filename):
@@ -216,14 +208,43 @@ def send_file(peer, password, filename):
     else:
         print("File not found")
 
+def get_peer_info(peer, password):
+    try:
+        message = {"type": "REQUEST_PUBLIC_KEY", "data": {}}
+        create_tls_connection(peer, password, message)
+    except Exception as e:
+        print(f"Failed to retrieve public key from {peer['name']}: {e}")
+        return None
+
 def handle_client_connection(conn, password):
     try:
         request = recieve_message(conn)
         req_type = request.get("type")
         print(req_type)
         
-        if req_type == "LIST_FILES":
-            response = list_available_files()
+        if req_type is "REQUEST_PUBLIC_KEY":
+            public_key_bytes = conn.get_certificate().get_pubkey().to_cryptography_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            public_key_encoded = base64.b64encode(public_key_bytes).decode('utf-8')
+            uid = get_uid()
+            service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
+            adddress = conn.getpeername()
+            response = {
+                "type": "PUBLIC_KEY",
+                    "data": {
+                    "public_key": public_key_encoded,
+                    "uid": uid,
+                    "name": service_name,
+                    "address": adddress
+                    }
+                }
+            send_message(conn, response)
+
+        elif req_type == "LIST_FILES":
+            service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
+            response = {"name": service_name, "files": list_available_files()}
             send_message(conn, response)
 
         elif req_type == "REQUEST_FILE":
@@ -337,11 +358,37 @@ def handle_response(conn, message, password):
     try:
         response_data = recieve_message(conn)
 
+        if message["type"] == "REQUEST_PUBLIC_KEY":
+            public_key = response_data["public_key"]
+            uid = response_data["uid"]
+            peer_name = message.get("name", "Unknown Peer")
+            peer_address = response_data["address"]
+            print(f"Peer info recieived from {peer_name}:")
+
+            try:
+                if os.path.exists("peers.json"):
+                    with open("peers.json", "r") as f:
+                        trusted_peers = json.load(f)
+                else:
+                    trusted_peers = {}
+
+                trusted_peers[peer_name] = {
+                    "name": peer_name,
+                    "address": peer_address,
+                    "public_key_hash": public_key,
+                    "public_key": public_key,
+                    "uid": uid,
+                }    
+                
+                with open("peers.json", "w") as f:
+                    json.dump(trusted_peers, f, indent=4)
+            except Exception as e:
+                print(f"Failed to save peer info: {e}")
+                
         if message["type"] == "LIST_FILES":
             print("Available files:")
-            for file in response_data:
-                print(f"- {file}")
-            peer_name = message.get("peer_name", "Unknown Peer")
+            print(response_data["files"])
+            peer_name = message.get("name", "Unknown Peer")
             if os.path.exists("peerfiles.json"):
                 with open("peerfiles.json", "r") as f:
                     peer_files = json.load(f)
