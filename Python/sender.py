@@ -238,9 +238,13 @@ def handle_client_connection(conn, password):
 
         request = recieve_message(conn)
         req_type = request.get("type")
+        client_ver = request.get("client")
+        if client_ver == "js":
+            request = convert_from_js_msg(request)
+            req_type = request.get("type")
         print(req_type)
         
-        if req_type == "PEER_CONNECTED":
+        if req_type == "REQUEST_PUBLIC_KEY":
             with open("file_vault/client.crt", "rb") as f:
                 client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
             public_key = client_cert.get_pubkey().to_cryptography_key().public_bytes(
@@ -253,10 +257,13 @@ def handle_client_connection(conn, password):
             hostname = socket.gethostname()
             adddress = socket.gethostbyname(hostname)
             response = {
+                "type": "WELCOME",
+                  "data": {        
                     "public_key": public_key_encoded,
                     "uid": uid,
                     "name": service_name,
                     "address": adddress
+                    }
                 }
             send_message(conn, response)
 
@@ -391,7 +398,7 @@ def handle_client_connection(conn, password):
 def handle_response(conn, message, password):
     try:
         response_data = recieve_message(conn)
-        if message["type"] == "REQUEST_PUBLIC_KEY":
+        if response_data["type"] == "WELCOME":
             public_key = response_data["public_key"]
             uid = response_data["uid"]
             peer_name = response_data["name"]
@@ -500,6 +507,8 @@ def handle_response(conn, message, password):
         print(f"Invalid response received: {response_data}")
 
 def send_message(conn, message):
+    message["client"] = "py"
+    print(f"Sending message: {message}")
     message_encoded = json.dumps(message).encode()
     header = struct.pack("!I", len(message_encoded))
     conn.sendall(header + message_encoded)
@@ -529,3 +538,13 @@ def get_public_key_by_uid(uid):
         if peer_info.get("uid") == uid:
             return peer_info.get("public_key")
     return None
+
+def convert_from_js_msg(message):
+    if message.get("type") == "PEER_CONNECTED":
+        return {
+            "type": "REQUEST_PUBLIC_KEY",
+            "data": {
+                "public_key": message.get("publicKey"),
+                "keyRevocationList": message.get("KeyRevocationList"),
+            }
+        }
