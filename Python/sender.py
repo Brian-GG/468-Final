@@ -140,7 +140,7 @@ def list_available_files():
 
 def request_file(peer, password, filename):
     try:
-        message = {"type": "REQUEST_FILE", "data": {"filename": filename}}
+        message = {"type": "REQUEST_FILE", "data": {"fileName": filename, "peerName": f"SecureShareP2P-{socket.gethostname()}"}}
         create_tls_connection(peer, password, message)
     except Exception as e:
         print(f"Failed to retrieve file from {peer['name']}: {e}")
@@ -282,7 +282,8 @@ def handle_client_connection(conn, password):
                 conn.close()
                 return
             
-            filename = request.get("data", {}).get("filename")
+            peername = request.get("data", {}).get("peerName")
+            filename = request.get("data", {}).get("fileName")
             tmp_filename = filename + ".enc"
             file_path = os.path.join("file_vault", tmp_filename)
             if filename in list_available_files():
@@ -312,6 +313,7 @@ def handle_client_connection(conn, password):
                     encoded_cert = base64.b64encode(client_cert).decode('utf-8')
                     # Send the file data, hash, and signature
                     response = {
+                        "type"
                         "filename": filename,
                         "file_data": file_data.hex(),
                         "hash": file_hash,
@@ -439,19 +441,16 @@ def handle_response(conn, message, password):
                 json.dump(peer_files, f, indent=4)
             print(f"File list from {peer_name} saved to peerfiles.json.")
 
-        elif message["type"] == "REQUEST_FILE":
-            if "file_data" in response_data:
-                filename = response_data["filename"]
-                file_data = bytes.fromhex(response_data["file_data"])
-                file_hash = response_data["hash"]
-                print(f"file_hash: {file_hash}")
-                decoded_hash = base64.urlsafe_b64decode(file_hash)
-                file_signature = base64.b64decode(response_data["signature"])
-                uid = response_data["uid"]
+        elif response_data["type"] == "FILE_TRANSFER":
+            if "fileContent" in response_data["data"]:
+                filename = response_data["data"]["fileName"]
+                file_data = bytes.fromhex(response_data["data"]["fileContent"])
+                file_hash = response_data["data"]["fileHash"]
+                file_signature = response_data["data"]["fileSignature"]
+                uid = response_data["data"]["uid"]
 
                 if hashlib.sha256(file_data).hexdigest() == file_hash:
                     print(f"file_signature type: {type(file_signature)}")
-                    print(f"decoded_hash type: {type(decoded_hash)}")
                     print(f"File '{filename}' passed integrity check.")
                     public_key_encoded = get_public_key_by_uid(uid)
                     if public_key_encoded is None:
@@ -459,7 +458,8 @@ def handle_response(conn, message, password):
                         send_message(conn, response)
                     public_key_bytes = base64.b64decode(public_key_encoded)
                     public_key = serialization.load_pem_public_key(public_key_bytes)
-                    print(type(public_key))
+                    if response_data["client"] == "js":
+                        file_signature = file_signature.encode()
                     try:
                         public_key.verify(
                             file_signature,
