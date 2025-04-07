@@ -33,22 +33,20 @@ function handleServerCreation() {
         }
         catch (err)
         {
-            data = data.slice(4);
+            data = data.toString();
+            data = data.split('---DELIMITER---')[0];
             json = JSON.parse(data.toString());
         }
 
         const config = readConfig();
         const configDir = utils.getConfigDirectory();
 
-        if (json.client == 'py')
-        {
-            modifyIncomingDataFormat(data.toString());
-        }
-
         switch (json.type)
         {
             case 'PEER_CONNECTED':
                 let publicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
+                if (!publicKey.includes('BEGIN PUBLIC KEY'))
+                    publicKey = `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
 
                 if (!config.trustedPeers[json.data.peerName])
                     config.trustedPeers[json.data.peerName] = {};
@@ -60,12 +58,14 @@ function handleServerCreation() {
                 saveConfig(config);
 
                 let localIp = utils.getLocalIPv4Address();
-                socket.write(JSON.stringify({ type: 'WELCOME', data: { public_key: publicKey, keyRevocationList: config.keyRevocationList || [], uid: config.userId, name: config.serviceName, address: localIp  } }));
+                if (json.client == 'py')
+                    publicKey = Buffer.from(publicKey).toString('base64');  
+                socket.write(JSON.stringify({ type: 'WELCOME', data: { public_key: publicKey, keyRevocationList: config.keyRevocationList || [], uid: config.userId, name: config.serviceName, address: localIp  }, client: 'js' }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
-            case 'REQUEST_FILES_LIST':
+            case 'LIST_FILES':
                 let files = await scanFileVault();
-                socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files } }));
+                socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files, name: config.serviceName }, client: 'js' }));
                 break;
             case 'REQUEST_FILE':
                 let peerName = json.data.peerName;
@@ -80,7 +80,7 @@ function handleServerCreation() {
                         let filePath = path.join(utils.getFileVaultDirectory(), encryptedFileName);
                         if (!fs.existsSync(filePath))
                         {
-                            socket.write(JSON.stringify({ type: 'FILE_NOT_FOUND', data: { fileName, peerName } }));
+                            socket.write(JSON.stringify({ type: 'FILE_NOT_FOUND', data: { fileName, peerName }, client: 'js' }));
                             break;
                         }
                         
@@ -88,26 +88,26 @@ function handleServerCreation() {
                         let decryptedBuffer = await decryptFile(encryptedFileName, derivedKey);
                         if (!decryptedBuffer)
                         {
-                            socket.write(JSON.stringify({ type: 'FILE_DECRYPTION_FAILED', data: { fileName, peerName } }));
+                            socket.write(JSON.stringify({ type: 'FILE_DECRYPTION_FAILED', data: { fileName, peerName }, client: 'js' }));
                             break;
                         }
-                        
+
                         const fileHash = crypto.createHash('sha256').update(decryptedBuffer).digest('hex');
+                        decryptedBuffer = decryptedBuffer.toString('hex');
                         const fileSize = decryptedBuffer.length;
 
                         const decryptedPrivateKey = await utils.decryptPrivateKey(config.keypair.privateKey, derivedKey, config.keypair.iv, config.keypair.authTag);
-                        const signature = utils.signData(fileHash, decryptedPrivateKey);
+                        let signature;
+                        if (json.client == 'py')
+                        {
+                            signature = utils.signData(Buffer.from(fileHash, 'hex'), decryptedPrivateKey);
+                        }
+                        else
+                        {
+                            signature = utils.signData(fileHash, decryptedPrivateKey);
+                        }
 
-                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize, sourceEntity: config.userId, fileSignature: signature } }));
-
-                        setTimeout(() => {
-                            socket.write(decryptedBuffer);
-
-                            setTimeout(() => {
-                                socket.write('\n\n--FILE_TRANSFER_COMPLETE0--\n\n');
-                                console.log(`File ${fileName} sent to ${peerName}`);
-                            }, 100);
-                        }, 1000);
+                        socket.write(JSON.stringify({ type: 'FILE_TRANSFER', data: { fileName, fileContent: decryptedBuffer, fileHash, fileSize, sourceEntity: config.userId, fileSignature: signature, uid: config.userId }, client: 'js' }));
                     }
                     catch (error)
                     {
@@ -178,6 +178,7 @@ function handleServerCreation() {
                 console.log('Unknown message type:', json.type);
                 break;
         }
+        socket.write("---DELIMITER---");
     });
 
     socket.on('end', () => {
@@ -295,6 +296,7 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
                     socket.end();
                 }
             });
+            socket.write('---DELIMITER---');
         });
 
         socket.on('data', (data) => {
@@ -306,7 +308,7 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
             }
             catch (err)
             {
-                data = data.slice(4);
+                data = data.split('---DELIMITER---')[0];
                 json = JSON.parse(data.toString());
             }
 
@@ -523,6 +525,7 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                     fileHash: fileMetadata.fileHash,
                     sourceEntity: fileMetadata.sourceEntity,
                     receivedFrom: peerName,
+                    signature: fileMetadata.fileSignature,
                 }
                 saveConfig(config);
                 
