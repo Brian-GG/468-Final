@@ -26,9 +26,24 @@ function handleServerCreation() {
 
   const server = tls.createServer(options, async (socket) => {
     socket.on('data', async (data) => {
-        let json = JSON.parse(data.toString());
+        let json;
+        try
+        {
+            json = JSON.parse(data.toString());
+        }
+        catch (err)
+        {
+            data = data.slice(4);
+            json = JSON.parse(data.toString());
+        }
+
         const config = readConfig();
         const configDir = utils.getConfigDirectory();
+
+        if (json.client == 'py')
+        {
+            modifyIncomingDataFormat(data.toString());
+        }
 
         switch (json.type)
         {
@@ -44,7 +59,8 @@ function handleServerCreation() {
                 };
                 saveConfig(config);
 
-                socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey, keyRevocationList: config.keyRevocationList || [] } }));
+                let localIp = utils.getLocalIPv4Address();
+                socket.write(JSON.stringify({ type: 'WELCOME', data: { public_key: publicKey, keyRevocationList: config.keyRevocationList || [], uid: config.userId, name: config.serviceName, address: localIp  } }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
             case 'REQUEST_FILES_LIST':
@@ -261,7 +277,8 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
 
             const message = JSON.stringify({
                 type: messageType,
-                data: messageData
+                data: messageData,
+                client: 'js'
             });
 
             socket.write(message, (err) => {
@@ -281,29 +298,21 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
         });
 
         socket.on('data', (data) => {
+            let json;
             responseData += data.toString();
             try
             {
-                const response = JSON.parse(responseData);
-                clearTimeout(connectionTimeout);
-                socket.end();
-                resolve(response);
+                json = JSON.parse(data.toString());
             }
             catch (err)
             {
-                // noop
+                data = data.slice(4);
+                json = JSON.parse(data.toString());
             }
-            try
-            {
-                const response = JSON.parse(responseData);
-                clearTimeout(connectionTimeout);
-                socket.end();
-                resolve(response);
-            }
-            catch (err)
-            {
-                // noop
-            }
+
+            clearTimeout(connectionTimeout);
+            socket.end();
+            resolve(json);
         });
 
         socket.on('end', () => {
@@ -378,7 +387,8 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
 
             const request = JSON.stringify({
                 type: 'REQUEST_FILE',
-                data: { fileName, peerName }
+                data: { fileName, peerName },
+                client: 'js',
             });
             
             socket.write(request);
