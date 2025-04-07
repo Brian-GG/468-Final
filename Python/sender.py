@@ -5,7 +5,6 @@ import json
 import threading
 import os
 import hashlib
-import struct
 from encryption import *
 from filemanager import *
 
@@ -274,7 +273,7 @@ def handle_client_connection(conn, password):
                 return
             
             service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
-            response = {"name": service_name, "files": list_available_files()}
+            response = {"type": "FILES_LIST", "name": service_name, "data": { "files": list_available_files()}}
             send_message(conn, response)
 
         elif req_type == "REQUEST_FILE":
@@ -399,10 +398,10 @@ def handle_response(conn, message, password):
     try:
         response_data = recieve_message(conn)
         if response_data["type"] == "WELCOME":
-            public_key = response_data["public_key"]
-            uid = response_data["uid"]
-            peer_name = response_data["name"]
-            peer_address = response_data["address"]
+            public_key = response_data["data"]["public_key"]
+            uid = response_data["data"]["uid"]
+            peer_name = response_data["data"]["name"]
+            peer_address = response_data["data"]["address"]
             print(f"Peer info recieived from {peer_name}:")
 
             try:
@@ -424,17 +423,17 @@ def handle_response(conn, message, password):
             except Exception as e:
                 print(f"Failed to save peer info: {e}")
 
-        elif message["type"] == "LIST_FILES":
+        elif response_data["type"] == "FILES_LIST":
             print("Available files:")
-            print(response_data["files"])
-            peer_name = response_data["name"]
+            print(response_data["data"]["files"])
+            peer_name = response_data["data"]["name"]
             if os.path.exists("peerfiles.json"):
                 with open("peerfiles.json", "r") as f:
                     peer_files = json.load(f)
             else:
                 peer_files = {}
 
-            peer_files[peer_name] = response_data["files"]
+            peer_files[peer_name] = response_data["data"]["files"]
 
             with open("peerfiles.json", "w") as f:
                 json.dump(peer_files, f, indent=4)
@@ -510,25 +509,30 @@ def send_message(conn, message):
     message["client"] = "py"
     print(f"Sending message: {message}")
     message_encoded = json.dumps(message).encode()
-    header = struct.pack("!I", len(message_encoded))
-    conn.sendall(header + message_encoded)
+    conn.sendall(message_encoded + b'---DELIMITER---')
     return
 
 def recieve_message(conn):
-    header = recieve_data(conn, 4)
-    if not header:
+    message = recieve_data(conn)
+    if not message:
         return None
-    message_length = struct.unpack("!I", header)[0]
-    message_encoded = recieve_data(conn, message_length)
-    return json.loads(message_encoded.decode('utf-8'))
+    return json.loads(message.decode('utf-8'))
 
-def recieve_data(conn, length):
+def recieve_data(conn):
     data = b""
-    while len(data) < length:
-        chunk = conn.recv(length - len(data))
-        if not chunk:
-            return None
-        data += chunk
+    try:
+        while True:
+            chunk = conn.recv(4096)
+            print(chunk)
+            if not chunk:
+                break
+            data += chunk
+            if b'---DELIMITER---' in data:
+                data = data.split(b'---DELIMITER---')[0]
+                break
+    except ConnectionResetError:
+        print("Connection reset by peer")
+        return None
     return data
 
 def get_public_key_by_uid(uid):
