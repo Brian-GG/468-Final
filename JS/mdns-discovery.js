@@ -1,6 +1,7 @@
 const { readConfig } = require('./state');
 const { Bonjour} = require('bonjour-service');
 const bonjour = new Bonjour();
+const { resolveHostnameToIP } = require('./utils');
 let activeService = null;
 let activeBrowser = null;
 
