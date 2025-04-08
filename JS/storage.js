@@ -6,7 +6,7 @@ const { readConfig, saveConfig } = require('./state');
 const secureContext = require('./secureContext');
 const mdns = require('./mdns-discovery');
 
-const ALGORITHM = 'aes-256-gcm';
+const ALGORITHM = 'aes-128-cbc';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 

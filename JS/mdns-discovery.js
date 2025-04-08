@@ -1,7 +1,6 @@
 const { readConfig } = require('./state');
 const { Bonjour} = require('bonjour-service');
 const bonjour = new Bonjour();
-const { resolveHostnameToIP } = require('./utils');
 let activeService = null;
 let activeBrowser = null;
 
@@ -22,7 +21,7 @@ module.exports = {
 
         const serviceName = name || config.serviceName;
 
-        activeService = bonjour.publish({ name: config.serviceName, type: config.serviceType, port });
+        activeService = bonjour.publish({ name: config.serviceName, type: 'secureshare', port });
 
         return serviceName;
     },
@@ -31,31 +30,35 @@ module.exports = {
         if (activeBrowser)
             activeBrowser.stop();
 
-        const config = readConfig();
-
-        activeBrowser = bonjour.find({ type: config.serviceType });
+        activeBrowser = bonjour.find({});
 
         const onPeerUp = async (service) => {
             const config = readConfig();
+
             if (service.name === config.serviceName)
                 return;
         
             try
             {
-                const ip = await resolveHostnameToIP(service.host);
-                
-                if (!peers.has(service.name))
+                // Python zeroconf handles service type in a strange way for broadcast
+                // which doesn't get picked up by the JS library. So, we do a manual filter
+                // here rather than letting the library handle it.
+                if (service.host.includes('secureshare'))
                 {
-                    console.log(`New peer discovered: ${service.name} on ${ip}:${service.port}`);
-                    peers.set(service.name, {
-                        name: service.name,
-                        host: ip,
-                        port: service.port,
-                        service: service,
-                        discoveredAt: Date.now(),
-                        lastSeen: Date.now()
-                    });
-                    console.log(`Total peers: ${peers.size}`);
+                    let ip = service.referer.address
+                    if (!peers.has(service.name))
+                    {
+                        console.log(`New peer discovered: ${service.name} on ${ip}:${service.port}`);
+                        peers.set(service.name, {
+                            name: service.name,
+                            host: ip,
+                            port: service.port,
+                            service: service,
+                            discoveredAt: Date.now(),
+                            lastSeen: Date.now()
+                        });
+                        console.log(`Total peers: ${peers.size}`);
+                    }
                 }
             }
             catch (err)
