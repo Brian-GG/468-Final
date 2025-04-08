@@ -545,10 +545,18 @@ async function passwordPrompt(firstRun=false)
     const config = readConfig();
 
     const userPassphrase = await password({ message: 'Enter password: ' });
-    if (firstRun)
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{12,}$/;
+
+    if (!passwordRegex.test(userPassphrase)) 
+    {
+        console.log('Password must be at least 12 characters long and include at least one uppercase letter, one lowercase letter, one numeric digit, and one special character.');
+        process.exit(1);
+    }
+
+    if (firstRun) 
     {
         const confirmPassphrase = await password({ message: 'Confirm password: ' });
-        if (userPassphrase !== confirmPassphrase)
+        if (userPassphrase !== confirmPassphrase) 
         {
             console.log('Passwords do not match. Exiting...');
             process.exit(1);
@@ -582,8 +590,7 @@ async function validatePrerequisites()
         config.userId = pubkeyHash;
         config.serviceName = `SecureShare-${pubkeyHash}`;
 
-        console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!');
-        // TODO: Password must be at least 12 characters long
+        console.log('You must set a passphrase to encrypt your downloaded files. Make sure you remember this!\nIf you forget, you will lose access to your files!\nYour password must be at least 12 characters, contining at least 1 upper case, 1 lower case, one numeric character and one special character.');
         const [derivedKey, salt] = await passwordPrompt(true);
         secureContext.storeKey(derivedKey);
         let pwHash = createSha256Hash(derivedKey);
