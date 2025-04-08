@@ -7,7 +7,7 @@ const path = require('path');
 
 const { runOSCommand } = require('./ca');
 
-const ALGORITHM = 'aes-256-gcm';
+const ALGORITHM = 'aes-128-cbc';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 
