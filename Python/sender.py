@@ -5,7 +5,6 @@ import json
 import threading
 import os
 import hashlib
-import struct
 from encryption import *
 from filemanager import *
 
@@ -141,7 +140,7 @@ def list_available_files():
 
 def request_file(peer, password, filename):
     try:
-        message = {"type": "REQUEST_FILE", "data": {"filename": filename}}
+        message = {"type": "REQUEST_FILE", "data": {"fileName": filename, "peerName": f"SecureShareP2P-{socket.gethostname()}"}}
         create_tls_connection(peer, password, message)
     except Exception as e:
         print(f"Failed to retrieve file from {peer['name']}: {e}")
@@ -204,23 +203,10 @@ def send_file(peer, password, filename):
     else:
         print("File not found")
 
-def sync_revoked_keys(password):
-    with open("revoked.json", "r") as f:
-        revoked_keys = json.load(f)
-    with open("peers.json", "r") as f:
-        trusted_peers = json.load(f)
-    
-    for peer in trusted_peers.values():
-        try:
-            message = {"type": "SYNC_REVOKED", "data": revoked_keys}
-            create_tls_connection(peer, password, message)
-        except Exception as e:
-            print(f"Failed to sync revoked keys with {peer['name']}: {e}")
-
-
 def get_peer_info(peer, password):
     try:
-        message = {"type": "REQUEST_PUBLIC_KEY", "data": {}}
+        service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
+        message = {"type": "PEER_CONNECTED", "data": { "peerName": f"{service_name}" }}
         create_tls_connection(peer, password, message)
     except Exception as e:
         print(f"Failed to retrieve public key from {peer['name']}: {e}")
@@ -251,55 +237,13 @@ def handle_client_connection(conn, password):
 
         request = recieve_message(conn)
         req_type = request.get("type")
+        client_ver = request.get("client")
+        if client_ver == "js":
+            request = convert_from_js_msg(request)
+            req_type = request.get("type")
         print(req_type)
-
-        if req_type == "SYNC_REVOKED":
-            if not is_peer_trusted:
-                print("Peer is not trusted. Cannot sync revoked list.")
-                conn.close()
-                return
-            
-            try:
-                revoked_keys = request.get("data")
-                merge_revoked_list(revoked_keys)
-
-                with open("revoked.json", "r") as f:
-                    revoked_local_keys = json.load(f)
-                for uid in revoked_keys:
-                    revoke_entries_by_uid(uid)
-                response = {"message": revoked_local_keys}
-                send_message(conn, response)
-            except Exception as e:
-                print(f"Failed to merge revoked keys: {e}")
-
-        elif req_type == "MIGRATION":
-            migration_data = request.get("data")
-            old_uid = migration_data.get("old_uid")
-            new_uid = migration_data.get("new_uid")
-            old_public_key = migration_data.get("old_public_key")
-            new_public_key = migration_data.get("new_public_key")
-            signature = base64.b64decode(migration_data.get("signature"))
-
-            public_key_bytes = base64.b64decode(old_public_key)
-            public_key = serialization.load_pem_public_key(public_key_bytes)
-            data_to_verify = {k: migration_data[k] for k in migration_data if k != "signature"}
-
-            try:
-                public_key.verify(signature, json.dumps(data_to_verify, sort_keys=True).encode('utf-8'))
-                print(f"Migration data verified successfully. Old UID: {old_uid}, New UID: {new_uid}")
-
-                add_to_revoked_keys(old_uid, old_public_key)
-                revoke_entries_by_uid(old_uid)
-
-            except Exception as e:
-                print(f"Signature verification failed: {e}")
-                response = {"message": "Signature verification failed. Migration failed."}
-                send_message(conn, response)
-                return
-            response = {"message": "Migration successful."}
-            send_message(conn, response)
-
-        elif req_type == "REQUEST_PUBLIC_KEY":
+        
+        if req_type == "REQUEST_PUBLIC_KEY":
             with open("file_vault/client.crt", "rb") as f:
                 client_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
             public_key = client_cert.get_pubkey().to_cryptography_key().public_bytes(
@@ -312,10 +256,13 @@ def handle_client_connection(conn, password):
             hostname = socket.gethostname()
             adddress = socket.gethostbyname(hostname)
             response = {
+                "type": "WELCOME",
+                  "data": {        
                     "public_key": public_key_encoded,
                     "uid": uid,
                     "name": service_name,
                     "address": adddress
+                    }
                 }
             send_message(conn, response)
 
@@ -326,16 +273,17 @@ def handle_client_connection(conn, password):
                 return
             
             service_name = f"SecureShareP2P-{socket.gethostname()}._secureshare._tcp.local."
-            response = {"name": service_name, "files": list_available_files()}
+            response = {"type": "FILES_LIST", "name": service_name, "data": { "files": list_available_files()}}
             send_message(conn, response)
 
         elif req_type == "REQUEST_FILE":
             if not is_peer_trusted:
-                print("Peer is not trusted. Cannot request files.")
+                print("Peer is not trusted. Cannot list files.")
                 conn.close()
                 return
             
-            filename = request.get("data", {}).get("filename")
+            peername = request.get("data", {}).get("peerName")
+            filename = request.get("data", {}).get("fileName")
             tmp_filename = filename + ".enc"
             file_path = os.path.join("file_vault", tmp_filename)
             if filename in list_available_files():
@@ -365,6 +313,7 @@ def handle_client_connection(conn, password):
                     encoded_cert = base64.b64encode(client_cert).decode('utf-8')
                     # Send the file data, hash, and signature
                     response = {
+                        "type"
                         "filename": filename,
                         "file_data": file_data.hex(),
                         "hash": file_hash,
@@ -382,7 +331,7 @@ def handle_client_connection(conn, password):
 
         elif req_type == "SEND_FILE":
             if not is_peer_trusted:
-                print("Peer is not trusted. Cannot send files.")
+                print("Peer is not trusted. Cannot list files.")
                 conn.close()
                 return
 
@@ -450,20 +399,11 @@ def handle_client_connection(conn, password):
 def handle_response(conn, message, password):
     try:
         response_data = recieve_message(conn)
-
-        if message["type"] == "SYNC_REVOKED":
-            try:
-                revoked_keys = response_data["message"]
-                print(f"Revoked keys received: {revoked_keys}")
-                merge_revoked_list(revoked_keys)
-            except Exception as e:
-                print(f"Failed to merge revoked keys: {e}")
-        
-        elif message["type"] == "REQUEST_PUBLIC_KEY":
-            public_key = response_data["public_key"]
-            uid = response_data["uid"]
-            peer_name = response_data["name"]
-            peer_address = response_data["address"]
+        if response_data["type"] == "WELCOME":
+            public_key = response_data["data"]["public_key"]
+            uid = response_data["data"]["uid"]
+            peer_name = response_data["data"]["name"]
+            peer_address = response_data["data"]["address"]
             print(f"Peer info recieived from {peer_name}:")
 
             try:
@@ -485,35 +425,32 @@ def handle_response(conn, message, password):
             except Exception as e:
                 print(f"Failed to save peer info: {e}")
 
-        elif message["type"] == "LIST_FILES":
+        elif response_data["type"] == "FILES_LIST":
             print("Available files:")
-            print(response_data["files"])
-            peer_name = response_data["name"]
+            print(response_data["data"]["files"])
+            peer_name = response_data["data"]["name"]
             if os.path.exists("peerfiles.json"):
                 with open("peerfiles.json", "r") as f:
                     peer_files = json.load(f)
             else:
                 peer_files = {}
 
-            peer_files[peer_name] = response_data["files"]
+            peer_files[peer_name] = response_data["data"]["files"]
 
             with open("peerfiles.json", "w") as f:
                 json.dump(peer_files, f, indent=4)
             print(f"File list from {peer_name} saved to peerfiles.json.")
 
-        elif message["type"] == "REQUEST_FILE":
-            if "file_data" in response_data:
-                filename = response_data["filename"]
-                file_data = bytes.fromhex(response_data["file_data"])
-                file_hash = response_data["hash"]
-                print(f"file_hash: {file_hash}")
-                decoded_hash = base64.urlsafe_b64decode(file_hash)
-                file_signature = base64.b64decode(response_data["signature"])
-                uid = response_data["uid"]
+        elif response_data["type"] == "FILE_TRANSFER":
+            if "fileContent" in response_data["data"]:
+                filename = response_data["data"]["fileName"]
+                file_data = bytes.fromhex(response_data["data"]["fileContent"])
+                file_hash = response_data["data"]["fileHash"]
+                file_signature = response_data["data"]["fileSignature"]
+                uid = response_data["data"]["uid"]
 
                 if hashlib.sha256(file_data).hexdigest() == file_hash:
                     print(f"file_signature type: {type(file_signature)}")
-                    print(f"decoded_hash type: {type(decoded_hash)}")
                     print(f"File '{filename}' passed integrity check.")
                     public_key_encoded = get_public_key_by_uid(uid)
                     if public_key_encoded is None:
@@ -521,7 +458,8 @@ def handle_response(conn, message, password):
                         send_message(conn, response)
                     public_key_bytes = base64.b64decode(public_key_encoded)
                     public_key = serialization.load_pem_public_key(public_key_bytes)
-                    print(type(public_key))
+                    if response_data["client"] == "js":
+                        file_signature = file_signature.encode()
                     try:
                         public_key.verify(
                             file_signature,
@@ -560,9 +498,6 @@ def handle_response(conn, message, password):
 
         elif message["type"] == "SEND_FILE":
             print(response_data)
-        
-        elif message["type"] == "MIGRATION":
-            print(response_data)
 
         else:
             print(f"Unexpected response: {response_data}")
@@ -571,26 +506,33 @@ def handle_response(conn, message, password):
         print(f"Invalid response received: {response_data}")
 
 def send_message(conn, message):
+    message["client"] = "py"
+    print(f"Sending message: {message}")
     message_encoded = json.dumps(message).encode()
-    header = struct.pack("!I", len(message_encoded))
-    conn.sendall(header + message_encoded)
+    conn.sendall(message_encoded + b'---DELIMITER---')
     return
 
 def recieve_message(conn):
-    header = recieve_data(conn, 4)
-    if not header:
+    message = recieve_data(conn)
+    if not message:
         return None
-    message_length = struct.unpack("!I", header)[0]
-    message_encoded = recieve_data(conn, message_length)
-    return json.loads(message_encoded.decode('utf-8'))
+    return json.loads(message.decode('utf-8'))
 
-def recieve_data(conn, length):
+def recieve_data(conn):
     data = b""
-    while len(data) < length:
-        chunk = conn.recv(length - len(data))
-        if not chunk:
-            return None
-        data += chunk
+    try:
+        while True:
+            chunk = conn.recv(4096)
+            print(chunk)
+            if not chunk:
+                break
+            data += chunk
+            if b'---DELIMITER---' in data:
+                data = data.split(b'---DELIMITER---')[0]
+                break
+    except ConnectionResetError:
+        print("Connection reset by peer")
+        return None
     return data
 
 def get_public_key_by_uid(uid):
@@ -601,65 +543,12 @@ def get_public_key_by_uid(uid):
             return peer_info.get("public_key")
     return None
 
-def revoke_certificate(password):
-    old_uid = get_uid()
-    with open("file_vault/client.crt", "rb") as f:
-        old_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
-    old_public_key_bytes = old_cert.get_pubkey().to_cryptography_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    old_public_key_encoded = base64.b64encode(old_public_key_bytes).decode('utf-8')
-
-    decrypted_key_data = decrypt_file("file_vault/client.key.enc", password, 0)
-    old_private_key_obj = serialization.load_pem_private_key(decrypted_key_data, password=None)
-
-    generate_self_cert(password)
-    generate_uid()
-
-    new_uid = get_uid()
-    with open("file_vault/client.crt", "rb") as f:
-        new_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
-    new_public_key_bytes = new_cert.get_pubkey().to_cryptography_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    new_public_key_encoded = base64.b64encode(new_public_key_bytes).decode('utf-8')
-
-    migration_data = {
-        "old_uid": old_uid,
-        "new_uid": new_uid,
-        "old_public_key": old_public_key_encoded,
-        "new_public_key": new_public_key_encoded,
-    }
-
-    migration_data_str = json.dumps(migration_data, sort_keys=True)
-
-    signature = old_private_key_obj.sign(migration_data_str.encode('utf-8'))
-    migration_data["signature"] = base64.b64encode(signature).decode('utf-8')
-
-    migration_message = {
-        "type": "MIGRATION",
-        "data": migration_data
-    }
-
-    if os.path.exists("peers.json"):
-        with open("peers.json", "r") as f:
-            trusted_peers = json.load(f)
-        
-        for peer_info in trusted_peers.values():
-            if is_revoked(peer_info):
-                print("Skipping revoked peer")
-                continue
-            try:
-                create_tls_connection(peer_info, password, migration_message)
-                print("Sent migration message to peer")
-            except Exception as e:
-                print(f"Failed to send migration message to {peer_info}: {e}")
-    else:
-        print("No peers found to send migration message to.")
-    
-    add_to_revoked_keys(old_uid, old_public_key_encoded)
-    revoke_entries_by_uid(old_uid)
-    print("Certificate revoked successfully.")
-         
+def convert_from_js_msg(message):
+    if message.get("type") == "PEER_CONNECTED":
+        return {
+            "type": "REQUEST_PUBLIC_KEY",
+            "data": {
+                "public_key": message.get("publicKey"),
+                "keyRevocationList": message.get("KeyRevocationList"),
+            }
+        }

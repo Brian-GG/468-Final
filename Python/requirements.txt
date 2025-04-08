@@ -1,4 +1,4 @@
 zeroconf
 cryptography
-argon2-
+argon2-cffi
 pyopenssl

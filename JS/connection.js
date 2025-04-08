@@ -26,7 +26,18 @@ function handleServerCreation() {
 
   const server = tls.createServer(options, async (socket) => {
     socket.on('data', async (data) => {
-        let json = JSON.parse(data.toString());
+        let json;
+        try
+        {
+            json = JSON.parse(data.toString());
+        }
+        catch (err)
+        {
+            data = data.toString();
+            data = data.split('---DELIMITER---')[0];
+            json = JSON.parse(data.toString());
+        }
+
         const config = readConfig();
         const configDir = utils.getConfigDirectory();
 
@@ -34,6 +45,8 @@ function handleServerCreation() {
         {
             case 'PEER_CONNECTED':
                 let publicKey = fs.readFileSync(path.join(configDir, 'client_public.pem'), 'utf8');
+                if (!publicKey.includes('BEGIN PUBLIC KEY'))
+                    publicKey = `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
 
                 if (!config.trustedPeers[json.data.peerName])
                     config.trustedPeers[json.data.peerName] = {};
@@ -44,12 +57,15 @@ function handleServerCreation() {
                 };
                 saveConfig(config);
 
-                socket.write(JSON.stringify({ type: 'WELCOME', data: { publicKey, keyRevocationList: config.keyRevocationList || [] } }));
+                let localIp = utils.getLocalIPv4Address();
+                if (json.client == 'py')
+                    publicKey = Buffer.from(publicKey).toString('base64');  
+                socket.write(JSON.stringify({ type: 'WELCOME', data: { public_key: publicKey, keyRevocationList: config.keyRevocationList || [], uid: config.userId, name: config.serviceName, address: localIp  }, client: 'js' }));
                 console.log(`${json.data.peerName} has added you as a trusted peer.`);
                 break;
-            case 'REQUEST_FILES_LIST':
+            case 'LIST_FILES':
                 let files = await scanFileVault();
-                socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files } }));
+                socket.write(JSON.stringify({ type: 'FILES_LIST', data: { files, name: config.serviceName }, client: 'js' }));
                 break;
             case 'REQUEST_FILE':
                 let peerName = json.data.peerName;
@@ -64,7 +80,7 @@ function handleServerCreation() {
                         let filePath = path.join(utils.getFileVaultDirectory(), encryptedFileName);
                         if (!fs.existsSync(filePath))
                         {
-                            socket.write(JSON.stringify({ type: 'FILE_NOT_FOUND', data: { fileName, peerName } }));
+                            socket.write(JSON.stringify({ type: 'FILE_NOT_FOUND', data: { fileName, peerName }, client: 'js' }));
                             break;
                         }
                         
@@ -72,26 +88,26 @@ function handleServerCreation() {
                         let decryptedBuffer = await decryptFile(encryptedFileName, derivedKey);
                         if (!decryptedBuffer)
                         {
-                            socket.write(JSON.stringify({ type: 'FILE_DECRYPTION_FAILED', data: { fileName, peerName } }));
+                            socket.write(JSON.stringify({ type: 'FILE_DECRYPTION_FAILED', data: { fileName, peerName }, client: 'js' }));
                             break;
                         }
-                        
+
                         const fileHash = crypto.createHash('sha256').update(decryptedBuffer).digest('hex');
+                        decryptedBuffer = decryptedBuffer.toString('hex');
                         const fileSize = decryptedBuffer.length;
 
                         const decryptedPrivateKey = await utils.decryptPrivateKey(config.keypair.privateKey, derivedKey, config.keypair.iv, config.keypair.authTag);
-                        const signature = utils.signData(fileHash, decryptedPrivateKey);
+                        let signature;
+                        if (json.client == 'py')
+                        {
+                            signature = utils.signData(Buffer.from(fileHash, 'hex'), decryptedPrivateKey);
+                        }
+                        else
+                        {
+                            signature = utils.signData(fileHash, decryptedPrivateKey);
+                        }
 
-                        socket.write(JSON.stringify({ type: 'FILE_METADATA', data: { fileName, fileHash, fileSize, sourceEntity: config.userId, fileSignature: signature } }));
-
-                        setTimeout(() => {
-                            socket.write(decryptedBuffer);
-
-                            setTimeout(() => {
-                                socket.write('\n\n--FILE_TRANSFER_COMPLETE0--\n\n');
-                                console.log(`File ${fileName} sent to ${peerName}`);
-                            }, 100);
-                        }, 1000);
+                        socket.write(JSON.stringify({ type: 'FILE_TRANSFER', data: { fileName, fileContent: decryptedBuffer, fileHash, fileSize, sourceEntity: config.userId, fileSignature: signature, uid: config.userId }, client: 'js' }));
                     }
                     catch (error)
                     {
@@ -162,6 +178,7 @@ function handleServerCreation() {
                 console.log('Unknown message type:', json.type);
                 break;
         }
+        socket.write("---DELIMITER---");
     });
 
     socket.on('end', () => {
@@ -261,7 +278,8 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
 
             const message = JSON.stringify({
                 type: messageType,
-                data: messageData
+                data: messageData,
+                client: 'js'
             });
 
             socket.write(message, (err) => {
@@ -278,32 +296,25 @@ async function sendMessageToPeer(host, port, messageType, messageData={}, timeou
                     socket.end();
                 }
             });
+            socket.write('---DELIMITER---');
         });
 
         socket.on('data', (data) => {
+            let json;
             responseData += data.toString();
             try
             {
-                const response = JSON.parse(responseData);
-                clearTimeout(connectionTimeout);
-                socket.end();
-                resolve(response);
+                json = JSON.parse(data.toString());
             }
             catch (err)
             {
-                // noop
+                data = data.split('---DELIMITER---')[0];
+                json = JSON.parse(data.toString());
             }
-            try
-            {
-                const response = JSON.parse(responseData);
-                clearTimeout(connectionTimeout);
-                socket.end();
-                resolve(response);
-            }
-            catch (err)
-            {
-                // noop
-            }
+
+            clearTimeout(connectionTimeout);
+            socket.end();
+            resolve(json);
         });
 
         socket.on('end', () => {
@@ -378,7 +389,8 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
 
             const request = JSON.stringify({
                 type: 'REQUEST_FILE',
-                data: { fileName, peerName }
+                data: { fileName, peerName },
+                client: 'js',
             });
             
             socket.write(request);
@@ -513,6 +525,7 @@ async function handleRequestFileFromPeer(host, port, fileName, peerName, timeout
                     fileHash: fileMetadata.fileHash,
                     sourceEntity: fileMetadata.sourceEntity,
                     receivedFrom: peerName,
+                    signature: fileMetadata.fileSignature,
                 }
                 saveConfig(config);
                 
