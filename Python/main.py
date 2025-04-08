@@ -14,6 +14,7 @@ def main():
     stop_event = threading.Event()
     zeroconf = joinNetwork(stop_event)
     start_tls_server_thread(password, stop_event)
+    sync_revoked_keys(password)
     while True:
         try:
             print("Welcome to SecureShare V1.0. Please select an action to continue:\n"
@@ -24,7 +25,8 @@ def main():
                 "4. Export A File\n"
                 "5. Add A Peer\n"
                 "6. Quit\n"
-                "7. Listen For Requests\n")
+                "7. Listen For Requests\n"
+                "8. Revoke Certificate\n")
             
 
             action = input("Enter action: \n")
@@ -49,6 +51,8 @@ def main():
                         time.sleep(1)
                 except KeyboardInterrupt:
                     print("returning to main menu!")    
+            elif action == "8":
+                revoke_certificate(password)
             else:
                 print("invalid input!\n")
         except KeyboardInterrupt:
