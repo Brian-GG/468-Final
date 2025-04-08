@@ -187,7 +187,7 @@ module.exports = {
                             fileName = fileName.slice(0, -4);
                         const decryptedFilePath = path.join(fileVaultDir, fileName);
                         fs.writeFileSync(decryptedFilePath, decrypted);
-                        fs.unlinkSync(`${filePath}.enc`);
+                        fs.unlinkSync(`${filePath}`);
                     }
                     return decrypted;
                 }

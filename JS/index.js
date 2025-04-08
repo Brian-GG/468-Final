@@ -273,7 +273,7 @@ async function requestFileFromPeer()
 
 async function decryptFileInVault()
 {
-    let fileList = scanFileVault();
+    let fileList = await scanFileVault();
     if (fileList.length === 0)
     {
         console.log('No files found in vault');
